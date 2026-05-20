@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(pnpm lint:fix)",
+      "Bash(xargs ls)",
+      "Bash(git add *)",
+      "Bash(pnpm test *)"
+    ]
+  }
+}
