@@ -28,8 +28,16 @@ The requirements above are the core assessment. You don't need to build anything
 
 ### Running the server
 
+Install all dependencies from the repo root (this covers both the server and the frontend workspace):
+
 ```sh
 npm install
+pnpm install
+```
+
+Then start the server:
+
+```sh
 npm run start
 ```
 

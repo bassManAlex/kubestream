@@ -11,18 +11,23 @@ A log viewer for a Kubernetes-style event stream, built as part of the Clastix f
 
 ## Running the project
 
-Start the event server from the repo root:
+From the repo root, install all dependencies (server + frontend workspace):
 
 ```bash
 npm install
+pnpm install
+```
+
+Start the event server (terminal 1):
+
+```bash
 npm run start
 ```
 
-Then start the frontend:
+Start the frontend (terminal 2):
 
 ```bash
 cd app
-pnpm install
 pnpm dev
 ```
 
