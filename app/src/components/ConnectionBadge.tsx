@@ -25,7 +25,7 @@ const config: Record<ConnectionStatus, { label: string; className: string }> = {
 };
 
 export function ConnectionBadge({ status }: Props) {
-  const { label, className } = config[status];
+  const { label, className } = config[status] ?? config[CS.Connecting];
 
   return (
     <span className={`text-xs font-mono px-2 py-1 rounded border ${className}`}>

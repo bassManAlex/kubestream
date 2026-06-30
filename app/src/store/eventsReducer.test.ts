@@ -3,7 +3,10 @@ import { eventsReducer, initialState } from "./eventsReducer";
 import type { EventsState, EventsAction } from "./eventsReducer";
 import type { KubeEvent, ParsedEvent } from "../types";
 
-function makeOkEvent(id: string, uid: string = "uid-1"): ParsedEvent {
+function makeOkEvent(
+  id: string,
+  uid: string = "uid-1",
+): Extract<ParsedEvent, { status: "ok" }> {
   return {
     status: "ok",
     raw: "{}",

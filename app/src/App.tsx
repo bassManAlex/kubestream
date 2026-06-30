@@ -18,7 +18,7 @@ export default function App() {
       <header className="shrink-0 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-sm font-mono font-semibold tracking-widest text-gray-400 uppercase">
-            Kubernetes Event Stream
+            KubeStream
           </h1>
           <span className="text-xs font-mono text-gray-600">
             {state.events.length === 2000

@@ -39,6 +39,7 @@ type RowProps = RowComponentProps<RowData>;
 
 const Row = ({ index, style, events, onSelect }: RowProps) => {
   const event = events[index];
+  if (!event) return null;
 
   if (event.status === "malformed") {
     return (
