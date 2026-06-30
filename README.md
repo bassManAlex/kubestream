@@ -1,4 +1,4 @@
-# frontend assessment
+# Kubestream
 
 **Build a log viewer for a Kubernetes-style event stream.**
 
