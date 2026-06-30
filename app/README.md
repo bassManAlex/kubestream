@@ -1,13 +1,16 @@
 # KubeStream
 
-A resilient log viewer for a Kubernetes-style event stream, built as part of the Clastix frontend assessment.
+A resilient, production-quality log viewer for a Kubernetes-style event stream.
+
+Built as part of the Clastix frontend assessment, then hardened across three review milestones covering correctness, performance, type safety, accessibility, and architecture.
 
 ## Stack
 
-- **Vite** + **React 19** (with React Compiler) + **TypeScript**
+- **Vite 8** + **React 19** (React Compiler) + **TypeScript** (strict + noUncheckedIndexedAccess)
 - **TailwindCSS v4** for styling
-- **react-window** + **react-virtualized-auto-sizer** for list virtualization
+- **react-window v2** + **react-virtualized-auto-sizer** for list virtualization
 - **js-yaml** for YAML rendering in the event detail modal
+- **zod v4** for runtime schema validation at the network boundary
 
 ## Running the project
 
@@ -33,68 +36,76 @@ pnpm dev
 
 The frontend runs on `http://localhost:5173`. The Vite dev server proxies `/events` and `/config` to `http://localhost:4000`.
 
-## Architecture decisions
+## Quality gates
 
-### Transport: SSE
-
-I chose SSE as the primary transport over WebSocket and REST polling for three reasons:
-
-- SSE is unidirectional by nature — the server pushes events, the client never sends data on the stream channel. WebSocket's bidirectional channel would be unused overhead.
-- The browser's `EventSource` API reconnects automatically on connection loss, which simplifies the reconnect logic significantly.
-- SSE is HTTP-native, which means it works transparently through proxies and load balancers without additional configuration.
-
-REST polling is used as a catch-up mechanism only: when SSE reconnects after a server restart, the client fetches missed events using `GET /events?since=<last_cursor>` before resuming the stream.
-
-### Handling malformed events
-
-The server deliberately emits broken JSON. Rather than silently dropping malformed events or letting a parse error crash the app, I represent them explicitly in the type system:
-
-```typescript
-type ParsedEvent =
-  | { status: 'ok'; data: KubeEvent; raw: string }
-  | { status: 'malformed'; raw: string; id: string }
+```bash
+cd app
+pnpm exec tsc -b   # strict TypeScript — zero errors
+pnpm lint          # ESLint with no-floating-promises + no-misused-promises
+pnpm test          # 29 unit tests — all pass
+pnpm build         # production bundle
 ```
 
-This means the UI can render a visible "malformed event" row instead of a silent gap in the stream. The app never crashes on bad input — every event string goes through a `try/catch` parse and comes out as one of the two cases above.
+## Architecture
 
-### State management: useReducer
+### Transport layer
 
-I used `useReducer` instead of Zustand or any external state library. The app has a single, well-defined state shape with typed actions — this is exactly the complexity level where a reducer is the right tool. Adding a library would introduce overhead without solving a real problem.
+SSE is the primary transport. `EventSource` is unidirectional by design — WebSocket's bidirectional channel would be unused overhead — and browser-native reconnect simplifies lifecycle management.
 
-One deliberate decision in the reducer: when the stream is paused, `EVENTS_RECEIVED` is a no-op. This means pausing is handled entirely in state logic, not in the transport layer. The SSE connection stays open — we discard incoming events at the reducer level rather than closing and reopening the connection.
+REST catch-up (`GET /events?since=<cursor>&limit=100`) fills the gap after a server restart. The client drains **all pages** in a cursor loop before resuming live ingestion, so no events are lost regardless of how long the outage lasts.
 
-### Event cap
+The transport is fully encapsulated in `app/src/services/eventStream.ts` (`EventStreamClient`), a framework-agnostic class owning the `EventSource`, cursor, rAF-batched dispatch, and exponential backoff. `useEventStream` is a 30-line adapter that wires the class to the reducer.
 
-The event list is capped at 2000 entries. In `ludicrous` mode the server emits ~60 events/second — without a cap, memory usage grows unbounded. When the cap is reached, the oldest events are dropped. The UI shows "2000+ events (capped)" in the header to make this explicit.
+### Resilience
 
-### Virtualization
+| Scenario | Behaviour |
+| --- | --- |
+| Server restart | Catch-up loop drains the full gap cursor-by-cursor; order guaranteed |
+| Live events during catch-up | Buffered and flushed after the gap is filled |
+| Reconnect failures | Exponential backoff: 1s -> 2s -> 4s, capped at 30s |
+| No connection after 4 attempts | Status transitions to `Disconnected` |
+| Malformed JSON from server | Parsed as `{ status: 'malformed' }` — displayed as a labelled row, never crashes |
 
-The event list is virtualized with `react-window`. Without virtualization, rendering 2000 DOM nodes while new events arrive at 60/s causes noticeable jank. With `FixedSizeList`, only the visible rows are in the DOM at any time regardless of total event count.
+### Performance
 
-### React Compiler
+SSE events are coalesced via `requestAnimationFrame`: up to 60 raw events per second collapse into a single reducer dispatch and render per frame. The store is newest-first, so the list never reverses the array on render.
 
-I used the React 19 compiler variant from the Vite template. The compiler eliminates the need for manual `useMemo`/`useCallback` in most cases, which is relevant for a high-frequency update scenario like this one. One known issue: in development mode, the compiler's render profiler hits a `DataCloneError` under sustained `ludicrous` load. This is a dev-only behaviour — the profiling instrumentation is stripped in production builds.
+### Type safety
+
+The full TypeScript `strict` suite is enabled in `tsconfig.app.json` (`strict`, `noUncheckedIndexedAccess`). All discriminated unions are exhaustive. Network payloads are validated with zod schemas (`KubeEventSchema`, `EventsResponseSchema`) — `JSON.parse(…) as T` casts do not exist in this codebase.
+
+### State management
+
+One `useReducer` holds the full application state: events, cursor, connection status, text filter, type filter, selected event, and pause state. The reducer is a pure function with a typed action union — no external state library, no hidden side effects.
+
+### Accessibility
+
+- Event list rows are `<button>` elements; fully keyboard-navigable.
+- The detail modal carries `role="dialog"`, `aria-modal`, and `aria-label`; focus moves in on open, is trapped within by Tab/Shift-Tab, and restores to the triggering row on close.
+- Filter input has an `aria-label`.
 
 ## Features
 
-- **Live event stream** via SSE with automatic reconnection
-- **Catch-up on reconnect** via REST polling with cursor-based pagination
-- **Event detail modal** with full event rendered as YAML
-- **Prev / next navigation** within the modal for events sharing the same `involvedObject.uid`, with keyboard support (← →, Esc)
-- **Exact-text filter** across name, namespace, reason, message, and type
-- **Type filter** — All / Normal / Warning
-- **Rate selector** — slow / medium / fast / ludicrous, via PATCH `/config`
-- **Pause / resume** — suspends event ingestion while keeping the SSE connection open
-- **Auto-scroll with scroll lock** — follows new events automatically, locks when scrolling up, resumes via button
-- **Malformed event handling** — broken JSON is displayed as a labelled row, never crashes the app
-- **Copy YAML** — copies the full event YAML to clipboard from the detail modal
-- **Event cap indicator** — header shows total count and flags when the 2000-event cap is active
-- **Malformed counter** — header tracks total malformed events received since page load
+- **Live event stream** via SSE with automatic reconnection and exponential backoff
+- **Catch-up on reconnect** — cursor loop drains the full gap, not just the first page
+- **rAF batching** — up to 60 events/s coalesced to one dispatch per frame
+- **Event detail modal** — full YAML rendering, copy to clipboard, prev/next sibling navigation (← →, Esc)
+- **Exact-text filter** across name, namespace, reason, message, and type (debounced 150ms)
+- **Type filter** — All / Normal / Warning (in reducer state)
+- **Rate selector** — slow / medium / fast / ludicrous via PATCH `/config`, with optimistic UI and revert on failure
+- **Pause / resume** — suspends ingestion; cursor frozen so missed events are recoverable on resume
+- **Auto-scroll with scroll lock** — follows new events, locks on manual scroll, resumes via button
+- **Malformed event handling** — broken or schema-invalid JSON shown as a labelled row, never crashes
+- **Copy YAML** — copies the full event YAML to clipboard (async, with error handling)
+- **Event cap** — 2000-event ring buffer; oldest events dropped; header shows cap status
+- **Malformed counter** — total malformed events since page load shown in header
+- **Empty states** — distinct messages for "waiting for first event", "no events match filter", "reconnecting"
+- **Error boundary** — wraps list and modal; recoverable fallback; SSE connection survives a render crash
+- **Disconnected state** — badge turns red after 4 consecutive failed reconnect attempts
 
-## What I would add with more time
+## What remains (post-roadmap)
 
-- **Full list virtualization with dynamic row heights** — current implementation assumes fixed 36px rows; variable-height rows would allow showing more of the message inline
-- **Exponential backoff on reconnect** — current reconnect delay is fixed at 3 seconds
-- **Namespace / reason filter facets** — extracted from the live event stream, not hardcoded
-- **IndexedDB persistence** — survive a page refresh without losing the event history
-- **E2E tests** with Playwright covering the chaos scenarios (malformed events, server restart)
+- **IndexedDB persistence** — survive a page refresh without losing event history
+- **Namespace / reason filter facets** — derived from the live stream, not hardcoded
+- **Variable-height virtualization** — current rows are fixed at 36px; `VariableSizeList` would allow inline message preview
+- **E2E Playwright suite** — covering server restart, ludicrous rate, malformed injection
