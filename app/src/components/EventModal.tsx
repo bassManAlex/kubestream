@@ -25,8 +25,11 @@ export function EventModal({
 
   const siblings = useMemo(() => getUidEvents(events, uid), [events, uid]);
   const currentIndex = siblings.findIndex((e) => e.id === event.id);
-  const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex < siblings.length - 1;
+  // currentIndex === -1 when the open event has aged out of the capped buffer;
+  // keep showing its YAML but disable navigation we can no longer anchor.
+  const inBuffer = currentIndex !== -1;
+  const hasPrev = inBuffer && currentIndex > 0;
+  const hasNext = inBuffer && currentIndex < siblings.length - 1;
 
   const yaml = useMemo(() => {
     try {
@@ -128,7 +131,9 @@ export function EventModal({
 
         <div className="flex items-center justify-between px-4 py-3 border-t border-gray-700">
           <span className="font-mono text-xs text-gray-600">
-            {currentIndex + 1} / {siblings.length} events for this object
+            {inBuffer
+              ? `${currentIndex + 1} / ${siblings.length} events for this object`
+              : "no longer in buffer"}
           </span>
           <div className="flex gap-2">
             <button

@@ -1,14 +1,30 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { List, type RowComponentProps, type ListImperativeAPI } from "react-window";
 import { AutoSizer } from "react-virtualized-auto-sizer";
-import type { ParsedEvent, KubeEvent, TypeFilter } from "../types";
-import { EventType } from "../types";
+import type {
+  ParsedEvent,
+  KubeEvent,
+  TypeFilter,
+  ConnectionStatus,
+} from "../types";
+import { EventType, ConnectionStatus as CS } from "../types";
 
 interface Props {
   events: ParsedEvent[];
   filter: string;
   typeFilter: TypeFilter;
+  connectionStatus: ConnectionStatus;
   onSelect: (event: KubeEvent) => void;
+}
+
+function emptyMessage(
+  hasEvents: boolean,
+  status: ConnectionStatus,
+): string {
+  if (hasEvents) return "No events match your filter";
+  if (status === CS.Reconnecting || status === CS.Disconnected)
+    return "Connection lost. Reconnecting…";
+  return "Waiting for events…";
 }
 
 function matchesFilter(
@@ -83,7 +99,13 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
   );
 };
 
-export function EventList({ events, filter, typeFilter, onSelect }: Props) {
+export function EventList({
+  events,
+  filter,
+  typeFilter,
+  connectionStatus,
+  onSelect,
+}: Props) {
   // events is stored newest-first, so no reverse is needed here.
   const filtered = useMemo(
     () => events.filter((e) => matchesFilter(e, filter, typeFilter)),
@@ -114,6 +136,11 @@ export function EventList({ events, filter, typeFilter, onSelect }: Props) {
         >
           ↓ resume scroll
         </button>
+      )}
+      {filtered.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-600 text-sm font-mono pointer-events-none">
+          {emptyMessage(events.length > 0, connectionStatus)}
+        </div>
       )}
       <AutoSizer
         renderProp={({ height, width }) => (

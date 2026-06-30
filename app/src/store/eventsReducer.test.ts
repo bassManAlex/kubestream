@@ -109,6 +109,13 @@ describe("eventsReducer — FILTER_CHANGED", () => {
   });
 });
 
+describe("eventsReducer — TYPE_FILTER_CHANGED", () => {
+  it("updates the type filter", () => {
+    const next = dispatch(initialState, { type: "TYPE_FILTER_CHANGED", payload: "Warning" });
+    expect(next.typeFilter).toBe("Warning");
+  });
+});
+
 describe("eventsReducer — TOGGLE_PAUSE", () => {
   it("toggles paused from false to true", () => {
     const next = dispatch(initialState, { type: "TOGGLE_PAUSE" });

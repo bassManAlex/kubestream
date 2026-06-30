@@ -1,4 +1,4 @@
-import type { KubeEvent, ParsedEvent, ConnectionStatus } from '../types';
+import type { KubeEvent, ParsedEvent, ConnectionStatus, TypeFilter } from '../types';
 import { ConnectionStatus as CS } from '../types';
 import { getUidEvents } from '../utils/siblings';
 
@@ -7,6 +7,7 @@ export interface EventsState {
   cursor: string | null;
   connectionStatus: ConnectionStatus;
   filter: string;
+  typeFilter: TypeFilter;
   selectedEvent: KubeEvent | null;
   selectedUid: string | null;
   paused: boolean;
@@ -18,6 +19,7 @@ export const initialState: EventsState = {
   cursor: null,
   connectionStatus: CS.Connecting,
   filter: '',
+  typeFilter: 'all',
   selectedEvent: null,
   selectedUid: null,
   paused: false,
@@ -29,6 +31,7 @@ export type EventsAction =
   | { type: 'CURSOR_UPDATED'; payload: string }
   | { type: 'CONNECTION_STATUS_CHANGED'; payload: ConnectionStatus }
   | { type: 'FILTER_CHANGED'; payload: string }
+  | { type: 'TYPE_FILTER_CHANGED'; payload: TypeFilter }
   | { type: 'EVENT_SELECTED'; payload: KubeEvent }
   | { type: 'EVENT_CLOSED' }
   | { type: 'NAVIGATE_PREV' }
@@ -64,6 +67,9 @@ export function eventsReducer(state: EventsState, action: EventsAction): EventsS
 
     case 'FILTER_CHANGED':
       return { ...state, filter: action.payload };
+
+    case 'TYPE_FILTER_CHANGED':
+      return { ...state, typeFilter: action.payload };
 
     case 'EVENT_SELECTED':
       return {

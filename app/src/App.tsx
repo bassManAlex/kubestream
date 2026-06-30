@@ -1,4 +1,4 @@
-import { useReducer, useState } from "react";
+import { useReducer } from "react";
 import { eventsReducer, initialState, MAX_EVENTS } from "./store/eventsReducer";
 import { useEventStream } from "./hooks/useEventStream";
 import { EventList } from "./components/EventList";
@@ -6,11 +6,9 @@ import { EventModal } from "./components/EventModal";
 import { Toolbar } from "./components/Toolbar";
 import { ConnectionBadge } from "./components/ConnectionBadge";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import type { TypeFilter } from "./types";
 
 export default function App() {
   const [state, dispatch] = useReducer(eventsReducer, initialState);
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
 
   useEventStream(state, dispatch);
 
@@ -43,8 +41,10 @@ export default function App() {
           }
           paused={state.paused}
           onTogglePause={() => dispatch({ type: "TOGGLE_PAUSE" })}
-          typeFilter={typeFilter}
-          onTypeFilterChange={setTypeFilter}
+          typeFilter={state.typeFilter}
+          onTypeFilterChange={(t) =>
+            dispatch({ type: "TYPE_FILTER_CHANGED", payload: t })
+          }
         />
       </div>
 
@@ -53,7 +53,8 @@ export default function App() {
           <EventList
             events={state.events}
             filter={state.filter}
-            typeFilter={typeFilter}
+            typeFilter={state.typeFilter}
+            connectionStatus={state.connectionStatus}
             onSelect={(event) =>
               dispatch({ type: "EVENT_SELECTED", payload: event })
             }

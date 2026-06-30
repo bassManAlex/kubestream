@@ -81,6 +81,13 @@ describe("parseEvent", () => {
     }
   });
 
+  it("returns malformed for a structurally incomplete event (schema validation)", () => {
+    const result = parseEvent(
+      JSON.stringify({ id: "x", involvedObject: { uid: "u" } }),
+    );
+    expect(result.status).toBe("malformed");
+  });
+
   it("never throws regardless of input", () => {
     const inputs = ["", "null", "[]", "{}", '{"id":null}'];
     for (const raw of inputs) {

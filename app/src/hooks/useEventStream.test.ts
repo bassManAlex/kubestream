@@ -37,8 +37,39 @@ class MockEventSource {
   }
 }
 
+// a complete, schema-valid event payload (parseEvent now validates the full shape)
 function okJson(id: string, uid = "uid-1"): string {
-  return JSON.stringify({ id, involvedObject: { uid } });
+  return JSON.stringify({
+    id,
+    apiVersion: "v1",
+    kind: "Event",
+    metadata: {
+      name: `evt-${id}`,
+      namespace: "default",
+      uid: `meta-${id}`,
+      resourceVersion: "1",
+      creationTimestamp: "2024-01-01T00:00:00Z",
+    },
+    involvedObject: {
+      apiVersion: "v1",
+      kind: "Pod",
+      name: "my-pod",
+      namespace: "default",
+      uid,
+      resourceVersion: "1",
+    },
+    type: "Normal",
+    reason: "Started",
+    action: "start",
+    message: "Started container",
+    source: { component: "kubelet", host: "node-1" },
+    reportingComponent: "kubelet",
+    reportingInstance: "node-1",
+    firstTimestamp: "2024-01-01T00:00:00Z",
+    lastTimestamp: "2024-01-01T00:00:00Z",
+    eventTime: "2024-01-01T00:00:00Z",
+    count: 1,
+  });
 }
 
 function jsonResponse(body: unknown): Response {
@@ -197,6 +228,32 @@ describe("useEventStream", () => {
     });
     expect(okIds(result.current)).toEqual(["evt_a", "evt_b", "evt_c"]);
     expect(result.current.cursor).toBe("evt_c");
+  });
+
+  it("backs off exponentially and reports Disconnected after repeated failures (#14/#9)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ events: [], nextCursor: null }));
+    const { result } = renderStream();
+    const lastEs = () => MockEventSource.instances.at(-1)!;
+
+    // attempt 1 -> base delay ~1000ms
+    await act(async () => lastEs().emitError());
+    expect(result.current.connectionStatus).toBe("reconnecting");
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    // attempt 2 -> delay doubled to ~2000ms: 1000ms is not enough to reconnect
+    await act(async () => lastEs().emitError());
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(MockEventSource.instances).toHaveLength(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(MockEventSource.instances).toHaveLength(3);
+
+    // attempts 3 and 4 -> still reconnecting, then Disconnected
+    await act(async () => lastEs().emitError());
+    expect(result.current.connectionStatus).toBe("reconnecting");
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    await act(async () => lastEs().emitError());
+    expect(result.current.connectionStatus).toBe("disconnected");
   });
 
   it("clears the reconnect timer on unmount, opening no new connection (bug #3)", async () => {
