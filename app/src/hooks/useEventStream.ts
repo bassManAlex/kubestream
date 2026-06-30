@@ -1,10 +1,14 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { EventsAction, EventsState } from "../store/eventsReducer";
+import type { EventsResponse, ParsedEvent } from "../types";
 import { ConnectionStatus as CS } from "../types";
 import { parseEvent } from "../utils/parseEvent";
 
-const SERVER_URL = "http://localhost:4000";
+// "" keeps requests relative so the Vite proxy (and any real deployment)
+// applies; override with VITE_SERVER_URL when the API is on another origin.
+const SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? "";
 const CATCHUP_LIMIT = 100;
+const RECONNECT_DELAY_MS = 3000;
 
 export function useEventStream(
   state: EventsState,
@@ -12,36 +16,76 @@ export function useEventStream(
 ) {
   const esRef = useRef<EventSource | null>(null);
   const cursorRef = useRef<string | null>(state.cursor);
+  const pausedRef = useRef<boolean>(state.paused);
+  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const catchingUpRef = useRef<boolean>(false);
+  const liveBufferRef = useRef<ParsedEvent[]>([]);
+  const connectRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     cursorRef.current = state.cursor;
   }, [state.cursor]);
 
-  const catchUp = useCallback(async () => {
-    if (!cursorRef.current) return;
-    try {
-      const url = `${SERVER_URL}/events?since=${cursorRef.current}&limit=${CATCHUP_LIMIT}`;
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const json = await res.json();
-      if (json.events?.length > 0) {
-        dispatch({
-          type: "EVENTS_RECEIVED",
-          payload: json.events.map(parseEvent),
-        });
-      }
-      if (json.nextCursor) {
-        dispatch({ type: "CURSOR_UPDATED", payload: json.nextCursor });
-      }
-    } catch {
-      // server still down, SSE will retry
-    }
-  }, [dispatch]);
+  useEffect(() => {
+    pausedRef.current = state.paused;
+  }, [state.paused]);
 
-  const connectRef = useRef<(() => void) | null>(null);
+  const ingest = useCallback(
+    (batch: ParsedEvent[]) => {
+      if (batch.length === 0) return;
+      dispatch({ type: "EVENTS_RECEIVED", payload: batch });
+      // Advance the cursor to the newest ok event in the batch. Never while
+      // paused: freezing the cursor at the last shown event means a reconnect
+      // during a pause can still backfill from there instead of skipping it.
+      if (pausedRef.current) return;
+      for (let i = batch.length - 1; i >= 0; i -= 1) {
+        const p = batch[i];
+        if (p?.status === "ok") {
+          cursorRef.current = p.data.id;
+          dispatch({ type: "CURSOR_UPDATED", payload: p.data.id });
+          break;
+        }
+      }
+    },
+    [dispatch],
+  );
+
+  // Fills the gap after a (re)connect: an initial page when we have no cursor,
+  // otherwise drains every page newer than the cursor before live takes over.
+  const catchUp = useCallback(async () => {
+    const fetchPage = async (
+      query: string,
+    ): Promise<EventsResponse | null> => {
+      try {
+        const res = await fetch(`${SERVER_URL}/events?${query}`);
+        if (!res.ok) return null;
+        return (await res.json()) as EventsResponse;
+      } catch {
+        return null; // server still down; SSE onerror will retry
+      }
+    };
+
+    if (!cursorRef.current) {
+      const json = await fetchPage(`limit=${CATCHUP_LIMIT}`);
+      if (!json) return;
+      ingest(json.events?.map(parseEvent) ?? []);
+      return;
+    }
+
+    while (cursorRef.current) {
+      const since = cursorRef.current;
+      const json = await fetchPage(`since=${since}&limit=${CATCHUP_LIMIT}`);
+      if (!json) return;
+      ingest(json.events?.map(parseEvent) ?? []);
+      // The server echoes the input cursor when there is nothing newer.
+      if (!json.nextCursor || json.nextCursor === since) break;
+    }
+  }, [ingest]);
 
   const connect = useCallback(() => {
     esRef.current?.close();
+    liveBufferRef.current = [];
+    catchingUpRef.current = false;
 
     dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: CS.Connecting });
 
@@ -50,24 +94,38 @@ export function useEventStream(
 
     es.onopen = () => {
       dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: CS.Connected });
-      catchUp();
+      if (pausedRef.current) return;
+      catchingUpRef.current = true;
+      void catchUp().finally(() => {
+        catchingUpRef.current = false;
+        const buffered = liveBufferRef.current;
+        liveBufferRef.current = [];
+        // Flush events that arrived during catch-up, after the gap events, so
+        // the array stays in chronological (oldest -> newest) order.
+        ingest(buffered);
+      });
     };
 
     es.onmessage = (e) => {
+      if (pausedRef.current) return;
       const parsed = parseEvent(e.data);
-      dispatch({ type: "EVENTS_RECEIVED", payload: [parsed] });
-      if (parsed.status === "ok") {
-        dispatch({ type: "CURSOR_UPDATED", payload: parsed.data.id });
+      if (catchingUpRef.current) {
+        liveBufferRef.current.push(parsed);
+        return;
       }
+      ingest([parsed]);
     };
 
     es.onerror = () => {
       dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: CS.Reconnecting });
       es.close();
       esRef.current = null;
-      setTimeout(() => connectRef.current?.(), 3000);
+      reconnectRef.current = setTimeout(
+        () => connectRef.current?.(),
+        RECONNECT_DELAY_MS,
+      );
     };
-  }, [catchUp, dispatch]);
+  }, [catchUp, dispatch, ingest]);
 
   useEffect(() => {
     connectRef.current = connect;
@@ -76,6 +134,7 @@ export function useEventStream(
   useEffect(() => {
     connect();
     return () => {
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
       esRef.current?.close();
     };
   }, [connect]);

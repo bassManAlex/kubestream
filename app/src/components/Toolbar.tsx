@@ -14,26 +14,29 @@ const RATES: Rate[] = ['slow', 'medium', 'fast', 'ludicrous'];
 const TYPE_FILTERS: TypeFilter[] = ['all', 'Normal', 'Warning'];
 
 async function patchRate(rate: Rate) {
-  await fetch('/config', {
+  const res = await fetch('/config', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rate }),
   });
+  if (!res.ok) throw new Error(`PATCH /config failed: ${res.status}`);
 }
 
 export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFilter, onTypeFilterChange }: Props) {
   const [rate, setRate] = useState<Rate>('slow');
 
   useEffect(() => {
-    fetch('/config')
+    void fetch('/config')
       .then(r => r.json())
-      .then(cfg => setRate(cfg.rate))
+      .then((cfg: { rate: Rate }) => setRate(cfg.rate))
       .catch(() => null);
   }, []);
 
   const handleRate = (r: Rate) => {
+    const prev = rate;
     setRate(r);
-    patchRate(r);
+    // Revert the optimistic selection if the server never accepted it.
+    void patchRate(r).catch(() => setRate(prev));
   };
 
   return (

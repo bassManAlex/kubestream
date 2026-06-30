@@ -46,11 +46,14 @@ export function EventModal({
 
   useKeyboard({ onClose, onPrev, onNext, active: true });
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(yaml).then(() => {
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(yaml);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    });
+    } catch {
+      // clipboard unavailable (insecure context) or permission denied
+    }
   };
 
   return (
@@ -73,7 +76,7 @@ export function EventModal({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleCopy}
+              onClick={() => void handleCopy()}
               className={`text-xs font-mono px-3 py-1 rounded border transition-colors ${
                 copied
                   ? "bg-green-500/20 text-green-400 border-green-500/40"

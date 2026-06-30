@@ -1,6 +1,6 @@
-# K8s Event Stream — Frontend Assessment
+# KubeStream
 
-A log viewer for a Kubernetes-style event stream, built as part of the Clastix frontend assessment.
+A resilient log viewer for a Kubernetes-style event stream, built as part of the Clastix frontend assessment.
 
 ## Stack
 

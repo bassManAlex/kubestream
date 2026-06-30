@@ -83,16 +83,18 @@ export function eventsReducer(state: EventsState, action: EventsAction): EventsS
       if (!state.selectedEvent || !state.selectedUid) return state;
       const siblings = getUidEvents(state.events, state.selectedUid);
       const idx = siblings.findIndex(e => e.id === state.selectedEvent!.id);
-      if (idx <= 0) return state;
-      return { ...state, selectedEvent: siblings[idx - 1] };
+      const prev = idx > 0 ? siblings[idx - 1] : undefined;
+      if (!prev) return state;
+      return { ...state, selectedEvent: prev };
     }
 
     case 'NAVIGATE_NEXT': {
       if (!state.selectedEvent || !state.selectedUid) return state;
       const siblings = getUidEvents(state.events, state.selectedUid);
       const idx = siblings.findIndex(e => e.id === state.selectedEvent!.id);
-      if (idx === -1 || idx >= siblings.length - 1) return state;
-      return { ...state, selectedEvent: siblings[idx + 1] };
+      const next = idx >= 0 ? siblings[idx + 1] : undefined;
+      if (!next) return state;
+      return { ...state, selectedEvent: next };
     }
 
     case 'TOGGLE_PAUSE':
