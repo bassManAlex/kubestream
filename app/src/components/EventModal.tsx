@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { dump } from "js-yaml";
 import type { KubeEvent, ParsedEvent } from "../types";
 import { useKeyboard } from "../hooks/useKeyboard";
+import { getUidEvents } from "../utils/siblings";
 
 interface Props {
   event: KubeEvent;
@@ -10,15 +11,6 @@ interface Props {
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
-}
-
-function getUidEvents(events: ParsedEvent[], uid: string): KubeEvent[] {
-  return events
-    .filter(
-      (e): e is Extract<ParsedEvent, { status: "ok" }> => e.status === "ok",
-    )
-    .map((e) => e.data)
-    .filter((e) => e.involvedObject.uid === uid);
 }
 
 export function EventModal({
@@ -46,6 +38,33 @@ export function EventModal({
 
   useKeyboard({ onClose, onPrev, onNext, active: true });
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog on open and restore it to the triggering
+  // element on close, so keyboard users are not stranded at the page top.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, []);
+
+  const handleTabKey = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input, [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(yaml);
@@ -62,8 +81,14 @@ export function EventModal({
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Event detail: ${event.involvedObject.namespace}/${event.involvedObject.name} ${event.reason}`}
+        tabIndex={-1}
+        className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-3xl max-h-[80vh] flex flex-col focus:outline-none"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleTabKey}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
           <div className="flex items-center gap-3 font-mono text-sm">
@@ -87,6 +112,7 @@ export function EventModal({
             </button>
             <button
               onClick={onClose}
+              aria-label="Close event detail"
               className="text-gray-600 hover:text-gray-300 text-lg leading-none"
             >
               ✕

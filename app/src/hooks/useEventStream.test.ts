@@ -48,8 +48,9 @@ function jsonResponse(body: unknown): Response {
   } as unknown as Response;
 }
 
+// store is newest-first; reverse to read chronologically in assertions
 function okIds(state: EventsState): string[] {
-  return state.events.flatMap((e) => (e.status === "ok" ? [e.data.id] : []));
+  return state.events.flatMap((e) => (e.status === "ok" ? [e.data.id] : [])).reverse();
 }
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -171,6 +172,31 @@ describe("useEventStream", () => {
 
     const ids = okIds(result.current);
     expect(ids).toEqual(["evt_10", "evt_11", "evt_12", "evt_13", "evt_50"]);
+  });
+
+  it("coalesces live events arriving in one frame into a single flush (perf #5)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ events: [], nextCursor: null }));
+
+    const { result } = renderStream();
+    const es0 = MockEventSource.instances[0]!;
+    await act(async () => {
+      es0.emitOpen(); // initial backfill empty, cursor stays null
+    });
+
+    // three messages within the same frame: nothing is committed yet
+    await act(async () => {
+      es0.emitMessage(okJson("evt_a"));
+      es0.emitMessage(okJson("evt_b"));
+      es0.emitMessage(okJson("evt_c"));
+    });
+    expect(result.current.events).toHaveLength(0);
+
+    // the animation frame flushes all three at once, in order
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+    });
+    expect(okIds(result.current)).toEqual(["evt_a", "evt_b", "evt_c"]);
+    expect(result.current.cursor).toBe("evt_c");
   });
 
   it("clears the reconnect timer on unmount, opening no new connection (bug #3)", async () => {

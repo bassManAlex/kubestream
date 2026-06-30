@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { Rate, TypeFilter } from '../types';
+
+const FILTER_DEBOUNCE_MS = 150;
 
 interface Props {
   filter: string;
@@ -24,6 +26,19 @@ async function patchRate(rate: Rate) {
 
 export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFilter, onTypeFilterChange }: Props) {
   const [rate, setRate] = useState<Rate>('slow');
+
+  // Local input value with a debounced commit. The callback lives in a ref so
+  // the debounce timer is keyed only on the text, not on App re-rendering on
+  // every incoming event (which would otherwise starve the commit under load).
+  const [text, setText] = useState(filter);
+  const onFilterChangeRef = useRef(onFilterChange);
+  useEffect(() => {
+    onFilterChangeRef.current = onFilterChange;
+  });
+  useEffect(() => {
+    const id = setTimeout(() => onFilterChangeRef.current(text), FILTER_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [text]);
 
   useEffect(() => {
     void fetch('/config')
@@ -56,9 +71,10 @@ export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFil
 
       <input
         type="text"
-        value={filter}
-        onChange={e => onFilterChange(e.target.value)}
+        value={text}
+        onChange={e => setText(e.target.value)}
         placeholder="Filter events..."
+        aria-label="Filter events by exact text"
         className="flex-1 bg-gray-900 border border-gray-700 rounded px-3 py-1.5 text-sm font-mono text-gray-200 placeholder-gray-600 focus:outline-none focus:border-gray-500"
       />
 

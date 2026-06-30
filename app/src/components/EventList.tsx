@@ -56,10 +56,12 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
   const isWarning = d.type === EventType.Warning;
 
   return (
-    <div
+    <button
+      type="button"
       style={style}
       onClick={() => onSelect(d)}
-      className="px-4 py-2 border-b border-gray-800/50 flex items-baseline gap-3 cursor-pointer hover:bg-gray-900 transition-colors font-mono"
+      aria-label={`${d.type} event, ${d.involvedObject.namespace}/${d.involvedObject.name}, ${d.reason}`}
+      className="w-full text-left px-4 py-2 border-b border-gray-800/50 flex items-baseline gap-3 cursor-pointer hover:bg-gray-900 transition-colors font-mono"
     >
       <span
         className={`shrink-0 w-14 md:w-16 ${isWarning ? "text-yellow-400" : "text-green-400"}`}
@@ -77,14 +79,14 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
       <span className="shrink-0 text-gray-700 w-16 md:w-20 text-right">
         {new Date(d.lastTimestamp).toLocaleTimeString()}
       </span>
-    </div>
+    </button>
   );
 };
 
 export function EventList({ events, filter, typeFilter, onSelect }: Props) {
+  // events is stored newest-first, so no reverse is needed here.
   const filtered = useMemo(
-    () =>
-      [...events].reverse().filter((e) => matchesFilter(e, filter, typeFilter)),
+    () => events.filter((e) => matchesFilter(e, filter, typeFilter)),
     [events, filter, typeFilter],
   );
 

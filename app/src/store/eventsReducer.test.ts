@@ -74,7 +74,7 @@ describe("eventsReducer — EVENTS_RECEIVED", () => {
     expect(next.malformedCount).toBe(2);
   });
 
-  it("caps events at 2000, dropping oldest", () => {
+  it("caps events at 2000, dropping oldest (newest-first)", () => {
     const full: EventsState = {
       ...initialState,
       events: Array.from({ length: 2000 }, (_, i) => makeOkEvent(String(i))),
@@ -82,8 +82,10 @@ describe("eventsReducer — EVENTS_RECEIVED", () => {
     const newEvt = makeOkEvent("new");
     const next = dispatch(full, { type: "EVENTS_RECEIVED", payload: [newEvt] });
     expect(next.events).toHaveLength(2000);
-    expect(next.events[next.events.length - 1]).toBe(newEvt);
-    expect(next.events[0]).toEqual(full.events[1]);
+    // newest is prepended; the oldest (tail) is dropped
+    expect(next.events[0]).toBe(newEvt);
+    expect(next.events[1]).toBe(full.events[0]);
+    expect(next.events).not.toContain(full.events[1999]);
   });
 
   it("does not mutate existing events array", () => {
@@ -145,9 +147,11 @@ describe("eventsReducer — NAVIGATE_PREV / NAVIGATE_NEXT", () => {
   const e1 = makeOkEvent("e1", uid);
   const e2 = makeOkEvent("e2", uid);
   const e3 = makeOkEvent("e3", uid);
+  // store is newest-first, so the chronological sequence e1 -> e2 -> e3 is
+  // held as [e3, e2, e1]; getUidEvents reverses it back to chronological
   const state: EventsState = {
     ...initialState,
-    events: [e1, e2, e3],
+    events: [e3, e2, e1],
     selectedEvent: e2.data as KubeEvent,
     selectedUid: uid,
   };

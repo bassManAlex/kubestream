@@ -19,7 +19,8 @@ export function useEventStream(
   const pausedRef = useRef<boolean>(state.paused);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const catchingUpRef = useRef<boolean>(false);
-  const liveBufferRef = useRef<ParsedEvent[]>([]);
+  const pendingRef = useRef<ParsedEvent[]>([]);
+  const rafRef = useRef<number | null>(null);
   const connectRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -49,6 +50,22 @@ export function useEventStream(
     },
     [dispatch],
   );
+
+  // Flushes everything buffered since the last animation frame in a single
+  // dispatch. At ludicrous rate this collapses ~60 dispatches/s into ~1 per
+  // frame, each carrying the whole batch instead of one event at a time.
+  const flush = useCallback(() => {
+    rafRef.current = null;
+    const batch = pendingRef.current;
+    if (batch.length === 0) return;
+    pendingRef.current = [];
+    ingest(batch);
+  }, [ingest]);
+
+  const scheduleFlush = useCallback(() => {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(flush);
+  }, [flush]);
 
   // Fills the gap after a (re)connect: an initial page when we have no cursor,
   // otherwise drains every page newer than the cursor before live takes over.
@@ -84,7 +101,11 @@ export function useEventStream(
 
   const connect = useCallback(() => {
     esRef.current?.close();
-    liveBufferRef.current = [];
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    pendingRef.current = [];
     catchingUpRef.current = false;
 
     dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: CS.Connecting });
@@ -98,22 +119,18 @@ export function useEventStream(
       catchingUpRef.current = true;
       void catchUp().finally(() => {
         catchingUpRef.current = false;
-        const buffered = liveBufferRef.current;
-        liveBufferRef.current = [];
-        // Flush events that arrived during catch-up, after the gap events, so
-        // the array stays in chronological (oldest -> newest) order.
-        ingest(buffered);
+        // Flush events buffered during catch-up, after the gap events, so the
+        // array stays in chronological (oldest -> newest) order.
+        flush();
       });
     };
 
     es.onmessage = (e) => {
       if (pausedRef.current) return;
-      const parsed = parseEvent(e.data);
-      if (catchingUpRef.current) {
-        liveBufferRef.current.push(parsed);
-        return;
-      }
-      ingest([parsed]);
+      pendingRef.current.push(parseEvent(e.data));
+      // Hold live events while catching up; flush() in onopen drains them once
+      // the gap is filled. Otherwise coalesce into the next animation frame.
+      if (!catchingUpRef.current) scheduleFlush();
     };
 
     es.onerror = () => {
@@ -125,7 +142,7 @@ export function useEventStream(
         RECONNECT_DELAY_MS,
       );
     };
-  }, [catchUp, dispatch, ingest]);
+  }, [catchUp, dispatch, flush, scheduleFlush]);
 
   useEffect(() => {
     connectRef.current = connect;
@@ -135,6 +152,7 @@ export function useEventStream(
     connect();
     return () => {
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
       esRef.current?.close();
     };
   }, [connect]);

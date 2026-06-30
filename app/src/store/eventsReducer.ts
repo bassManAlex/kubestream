@@ -1,5 +1,6 @@
 import type { KubeEvent, ParsedEvent, ConnectionStatus } from '../types';
 import { ConnectionStatus as CS } from '../types';
+import { getUidEvents } from '../utils/siblings';
 
 export interface EventsState {
   events: ParsedEvent[];
@@ -34,14 +35,7 @@ export type EventsAction =
   | { type: 'NAVIGATE_NEXT' }
   | { type: 'TOGGLE_PAUSE' };
 
-const MAX_EVENTS = 2000;
-
-function getUidEvents(events: ParsedEvent[], uid: string): KubeEvent[] {
-  return events
-    .filter((e): e is Extract<ParsedEvent, { status: 'ok' }> => e.status === 'ok')
-    .map(e => e.data)
-    .filter(e => e.involvedObject.uid === uid);
-}
+export const MAX_EVENTS = 2000;
 
 export function eventsReducer(state: EventsState, action: EventsAction): EventsState {
   switch (action.type) {
@@ -49,9 +43,11 @@ export function eventsReducer(state: EventsState, action: EventsAction): EventsS
     case 'EVENTS_RECEIVED': {
       if (state.paused) return state;
       const malformedCount = action.payload.filter(e => e.status === 'malformed').length;
-      const merged = [...state.events, ...action.payload];
+      // payload is chronological (oldest -> newest); the store is newest-first,
+      // so prepend the reversed batch and trim the oldest from the tail.
+      const merged = [...[...action.payload].reverse(), ...state.events];
       const trimmed = merged.length > MAX_EVENTS
-        ? merged.slice(merged.length - MAX_EVENTS)
+        ? merged.slice(0, MAX_EVENTS)
         : merged;
       return {
         ...state,
