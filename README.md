@@ -2,7 +2,7 @@
 
 A real-time Kubernetes event viewer. Streams events from a backend server, filters them by type, namespace, and reason, survives server restarts and malformed payloads, and persists the event buffer across page refreshes.
 
-![KubeStream screenshot](app/src/assets/img/logo.png)
+![KubeStream screenshot](docs/screenshot.png)
 
 ## Features
 
