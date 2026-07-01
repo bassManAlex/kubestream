@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { Rate, TypeFilter } from '../types';
+import type { FacetFilter } from '../store/eventsReducer';
+import { SERVER_URL } from '../config/serverUrl';
 
 const FILTER_DEBOUNCE_MS = 150;
 
@@ -10,13 +12,19 @@ interface Props {
   onTogglePause: () => void;
   typeFilter: TypeFilter;
   onTypeFilterChange: (value: TypeFilter) => void;
+  namespaces: Set<string>;
+  namespaceFilter: FacetFilter;
+  onNamespaceFilterChange: (value: FacetFilter) => void;
+  reasons: Set<string>;
+  reasonFilter: FacetFilter;
+  onReasonFilterChange: (value: FacetFilter) => void;
 }
 
 const RATES: Rate[] = ['slow', 'medium', 'fast', 'ludicrous'];
 const TYPE_FILTERS: TypeFilter[] = ['all', 'Normal', 'Warning'];
 
 async function patchRate(rate: Rate) {
-  const res = await fetch('/config', {
+  const res = await fetch(`${SERVER_URL}/config`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ rate }),
@@ -24,7 +32,20 @@ async function patchRate(rate: Rate) {
   if (!res.ok) throw new Error(`PATCH /config failed: ${res.status}`);
 }
 
-export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFilter, onTypeFilterChange }: Props) {
+export function Toolbar({
+  filter,
+  onFilterChange,
+  paused,
+  onTogglePause,
+  typeFilter,
+  onTypeFilterChange,
+  namespaces,
+  namespaceFilter,
+  onNamespaceFilterChange,
+  reasons,
+  reasonFilter,
+  onReasonFilterChange,
+}: Props) {
   const [rate, setRate] = useState<Rate>('slow');
 
   // Local input value with a debounced commit. The callback lives in a ref so
@@ -41,7 +62,7 @@ export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFil
   }, [text]);
 
   useEffect(() => {
-    void fetch('/config')
+    void fetch(`${SERVER_URL}/config`)
       .then(r => r.json())
       .then((cfg: { rate: Rate }) => setRate(cfg.rate))
       .catch(() => null);
@@ -99,6 +120,32 @@ export function Toolbar({ filter, onFilterChange, paused, onTogglePause, typeFil
           </button>
         ))}
       </div>
+
+      <div className="w-px h-5 bg-gray-700 shrink-0" />
+
+      <select
+        value={namespaceFilter}
+        onChange={e => onNamespaceFilterChange(e.target.value)}
+        aria-label="Filter by namespace"
+        className="text-xs font-mono px-2 py-1.5 rounded border bg-gray-900 border-gray-700 text-gray-400 hover:border-gray-500 focus:outline-none focus:border-gray-500"
+      >
+        <option value="all">all namespaces</option>
+        {[...namespaces].sort().map(ns => (
+          <option key={ns} value={ns}>{ns}</option>
+        ))}
+      </select>
+
+      <select
+        value={reasonFilter}
+        onChange={e => onReasonFilterChange(e.target.value)}
+        aria-label="Filter by reason"
+        className="text-xs font-mono px-2 py-1.5 rounded border bg-gray-900 border-gray-700 text-gray-400 hover:border-gray-500 focus:outline-none focus:border-gray-500"
+      >
+        <option value="all">all reasons</option>
+        {[...reasons].sort().map(r => (
+          <option key={r} value={r}>{r}</option>
+        ))}
+      </select>
 
       <div className="w-px h-5 bg-gray-700 shrink-0" />
 

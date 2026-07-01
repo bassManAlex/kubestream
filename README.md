@@ -121,6 +121,26 @@ Response:
 The transport envelope is always well-formed, but an individual event string may be not valid JSON.
 
 
+### Pointing the frontend at a different server
+
+By default the frontend talks to the backend via relative requests (`/events`,
+`/config`, ...). In dev, Vite's proxy (see `app/vite.config.ts`) forwards
+those to `http://localhost:4000`. In a production build there is no proxy, so
+relative requests resolve against whatever host serves the static files —
+which is only correct if frontend and backend share an origin.
+
+To point the frontend at a backend on a different host or port, set
+`VITE_SERVER_URL` at build time (copy `app/.env.example` to `app/.env` and
+edit it, or export the variable before running `npm run build`):
+
+```sh
+VITE_SERVER_URL=https://events.example.com npm run build
+```
+
+This affects both the event stream client and the rate/config calls in the
+toolbar. The backend already enables CORS for all origins (`src/server.ts`),
+so no server-side change is needed to support a cross-origin frontend.
+
 ### Server config
 
 Live config is read from `config.json`, read the current config with:

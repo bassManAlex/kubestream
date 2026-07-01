@@ -89,7 +89,7 @@ const fetchMock = vi.fn<typeof fetch>();
 function renderStream() {
   return renderHook(() => {
     const [state, dispatch] = useReducer(eventsReducer, initialState);
-    useEventStream(state, dispatch);
+    useEventStream(state, dispatch, null);
     return state;
   });
 }

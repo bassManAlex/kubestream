@@ -6,7 +6,10 @@ import type { KubeEvent, ParsedEvent } from "../types";
 function makeOkEvent(
   id: string,
   uid: string = "uid-1",
+  overrides: { namespace?: string; reason?: string } = {},
 ): Extract<ParsedEvent, { status: "ok" }> {
+  const namespace = overrides.namespace ?? "default";
+  const reason = overrides.reason ?? "Started";
   return {
     status: "ok",
     raw: "{}",
@@ -16,7 +19,7 @@ function makeOkEvent(
       kind: "Event",
       metadata: {
         name: `evt-${id}`,
-        namespace: "default",
+        namespace,
         uid: `meta-${id}`,
         resourceVersion: "1",
         creationTimestamp: "2024-01-01T00:00:00Z",
@@ -25,12 +28,12 @@ function makeOkEvent(
         apiVersion: "v1",
         kind: "Pod",
         name: "my-pod",
-        namespace: "default",
+        namespace,
         uid,
         resourceVersion: "1",
       },
       type: "Normal",
-      reason: "Started",
+      reason,
       action: "start",
       message: "Started container",
       source: { component: "kubelet", host: "node-1" },
@@ -92,6 +95,60 @@ describe("eventsReducer — EVENTS_RECEIVED", () => {
     const original = initialState.events;
     const next = dispatch(initialState, { type: "EVENTS_RECEIVED", payload: [makeOkEvent("1")] });
     expect(next.events).not.toBe(original);
+  });
+
+  it("accumulates namespace and reason facets across batches", () => {
+    const first = dispatch(initialState, {
+      type: "EVENTS_RECEIVED",
+      payload: [makeOkEvent("1", "uid-1", { namespace: "default", reason: "Started" })],
+    });
+    expect(first.namespaces).toEqual(new Set(["default"]));
+    expect(first.reasons).toEqual(new Set(["Started"]));
+
+    const second = dispatch(first, {
+      type: "EVENTS_RECEIVED",
+      payload: [makeOkEvent("2", "uid-2", { namespace: "kube-system", reason: "BackOff" })],
+    });
+    expect(second.namespaces).toEqual(new Set(["default", "kube-system"]));
+    expect(second.reasons).toEqual(new Set(["Started", "BackOff"]));
+  });
+
+  it("does not add facets for malformed events", () => {
+    const next = dispatch(initialState, {
+      type: "EVENTS_RECEIVED",
+      payload: [makeMalformed("m1")],
+    });
+    expect(next.namespaces.size).toBe(0);
+    expect(next.reasons.size).toBe(0);
+  });
+});
+
+describe("eventsReducer — EVENTS_RESTORED", () => {
+  it("rebuilds events, cursor, and facets from the snapshot", () => {
+    const restoredEvents = [
+      makeOkEvent("1", "uid-1", { namespace: "apps", reason: "Pulled" }),
+      makeOkEvent("2", "uid-2", { namespace: "monitoring", reason: "Failed" }),
+    ];
+    const next = dispatch(initialState, {
+      type: "EVENTS_RESTORED",
+      payload: { events: restoredEvents, cursor: "evt_2" },
+    });
+    expect(next.events).toBe(restoredEvents);
+    expect(next.cursor).toBe("evt_2");
+    expect(next.namespaces).toEqual(new Set(["apps", "monitoring"]));
+    expect(next.reasons).toEqual(new Set(["Pulled", "Failed"]));
+  });
+});
+
+describe("eventsReducer — NAMESPACE_FILTER_CHANGED / REASON_FILTER_CHANGED", () => {
+  it("updates the namespace filter", () => {
+    const next = dispatch(initialState, { type: "NAMESPACE_FILTER_CHANGED", payload: "kube-system" });
+    expect(next.namespaceFilter).toBe("kube-system");
+  });
+
+  it("updates the reason filter", () => {
+    const next = dispatch(initialState, { type: "REASON_FILTER_CHANGED", payload: "BackOff" });
+    expect(next.reasonFilter).toBe("BackOff");
   });
 });
 

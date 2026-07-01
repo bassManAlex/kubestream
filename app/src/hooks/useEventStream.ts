@@ -1,14 +1,15 @@
 import { useEffect, useRef } from "react";
 import type { EventsAction, EventsState } from "../store/eventsReducer";
 import { EventStreamClient } from "../services/eventStream";
-
-// "" keeps requests relative so the Vite proxy (and any real deployment)
-// applies; override with VITE_SERVER_URL when the API is on another origin.
-const SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? "";
+import { SERVER_URL } from "../config/serverUrl";
 
 export function useEventStream(
   state: EventsState,
   dispatch: React.Dispatch<EventsAction>,
+  // Cursor restored from persistence, or undefined while it's still loading.
+  // The stream waits for this to resolve so catch-up can seed from it instead
+  // of starting cold and re-fetching events already on disk.
+  initialCursor: string | null | undefined,
 ) {
   // The client reads liveness (pause state) through a ref so it never needs to
   // be recreated when state changes; it owns the connection for the hook's life.
@@ -18,15 +19,20 @@ export function useEventStream(
   }, [state.paused]);
 
   useEffect(() => {
-    const client = new EventStreamClient(SERVER_URL, {
-      onStatus: (status) =>
-        dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: status }),
-      onEvents: (batch) =>
-        dispatch({ type: "EVENTS_RECEIVED", payload: batch }),
-      onCursor: (id) => dispatch({ type: "CURSOR_UPDATED", payload: id }),
-      isPaused: () => pausedRef.current,
-    });
+    if (initialCursor === undefined) return;
+    const client = new EventStreamClient(
+      SERVER_URL,
+      {
+        onStatus: (status) =>
+          dispatch({ type: "CONNECTION_STATUS_CHANGED", payload: status }),
+        onEvents: (batch) =>
+          dispatch({ type: "EVENTS_RECEIVED", payload: batch }),
+        onCursor: (id) => dispatch({ type: "CURSOR_UPDATED", payload: id }),
+        isPaused: () => pausedRef.current,
+      },
+      initialCursor,
+    );
     client.start();
     return () => client.stop();
-  }, [dispatch]);
+  }, [dispatch, initialCursor]);
 }

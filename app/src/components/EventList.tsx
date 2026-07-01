@@ -8,11 +8,14 @@ import type {
   ConnectionStatus,
 } from "../types";
 import { EventType, ConnectionStatus as CS } from "../types";
+import type { FacetFilter } from "../store/eventsReducer";
 
 interface Props {
   events: ParsedEvent[];
   filter: string;
   typeFilter: TypeFilter;
+  namespaceFilter: FacetFilter;
+  reasonFilter: FacetFilter;
   connectionStatus: ConnectionStatus;
   onSelect: (event: KubeEvent) => void;
 }
@@ -31,11 +34,20 @@ function matchesFilter(
   event: ParsedEvent,
   filter: string,
   typeFilter: TypeFilter,
+  namespaceFilter: FacetFilter,
+  reasonFilter: FacetFilter,
 ): boolean {
   if (event.status === "malformed")
-    return typeFilter === "all" && (!filter || event.raw.includes(filter));
+    return (
+      typeFilter === "all" &&
+      namespaceFilter === "all" &&
+      reasonFilter === "all" &&
+      (!filter || event.raw.includes(filter))
+    );
   const d = event.data;
   if (typeFilter !== "all" && d.type !== typeFilter) return false;
+  if (namespaceFilter !== "all" && d.involvedObject.namespace !== namespaceFilter) return false;
+  if (reasonFilter !== "all" && d.reason !== reasonFilter) return false;
   if (!filter) return true;
   return (
     d.involvedObject.name.includes(filter) ||
@@ -70,6 +82,9 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
 
   const { data: d } = event;
   const isWarning = d.type === EventType.Warning;
+  // message's first line shown inline below the header row, so multi-line
+  // payloads (stack traces, probe details, ...) don't push the row taller.
+  const messagePreview = d.message.split("\n", 1)[0];
 
   return (
     <button
@@ -77,23 +92,27 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
       style={style}
       onClick={() => onSelect(d)}
       aria-label={`${d.type} event, ${d.involvedObject.namespace}/${d.involvedObject.name}, ${d.reason}`}
-      className="w-full text-left px-4 py-2 border-b border-gray-800/50 flex items-baseline gap-3 cursor-pointer hover:bg-gray-900 transition-colors font-mono"
+      className="w-full text-left px-4 py-1.5 border-b border-gray-800/50 flex flex-col justify-center gap-0.5 cursor-pointer hover:bg-gray-900 transition-colors font-mono"
     >
-      <span
-        className={`shrink-0 w-14 md:w-16 ${isWarning ? "text-yellow-400" : "text-green-400"}`}
-      >
-        {d.type}
+      <span className="flex items-baseline gap-3">
+        <span
+          className={`shrink-0 w-14 md:w-16 ${isWarning ? "text-yellow-400" : "text-green-400"}`}
+        >
+          {d.type}
+        </span>
+        <span className="shrink-0 text-gray-500 w-20 md:w-24 truncate">
+          {d.involvedObject.namespace}
+        </span>
+        <span className="shrink-0 text-gray-300 w-24 md:w-32 truncate">
+          {d.involvedObject.name}
+        </span>
+        <span className="shrink-0 text-blue-400 w-20 md:w-24 truncate">{d.reason}</span>
+        <span className="shrink-0 text-gray-700 ml-auto w-16 md:w-20 text-right">
+          {new Date(d.lastTimestamp).toLocaleTimeString()}
+        </span>
       </span>
-      <span className="shrink-0 text-gray-500 w-20 md:w-24 truncate">
-        {d.involvedObject.namespace}
-      </span>
-      <span className="shrink-0 text-gray-300 w-24 md:w-32 truncate">
-        {d.involvedObject.name}
-      </span>
-      <span className="shrink-0 text-blue-400 w-20 md:w-24 truncate">{d.reason}</span>
-      <span className="text-gray-500 truncate flex-1 min-w-0">{d.message}</span>
-      <span className="shrink-0 text-gray-700 w-16 md:w-20 text-right">
-        {new Date(d.lastTimestamp).toLocaleTimeString()}
+      <span className="text-gray-500 truncate pl-[calc(3.5rem+1rem)] md:pl-[calc(4rem+1rem)]">
+        {messagePreview}
       </span>
     </button>
   );
@@ -103,13 +122,18 @@ export function EventList({
   events,
   filter,
   typeFilter,
+  namespaceFilter,
+  reasonFilter,
   connectionStatus,
   onSelect,
 }: Props) {
   // events is stored newest-first, so no reverse is needed here.
   const filtered = useMemo(
-    () => events.filter((e) => matchesFilter(e, filter, typeFilter)),
-    [events, filter, typeFilter],
+    () =>
+      events.filter((e) =>
+        matchesFilter(e, filter, typeFilter, namespaceFilter, reasonFilter),
+      ),
+    [events, filter, typeFilter, namespaceFilter, reasonFilter],
   );
 
   const itemData = useMemo(
@@ -149,7 +173,7 @@ export function EventList({
             style={{ height: height ?? 0, width: width ?? 0 }}
             rowComponent={Row}
             rowCount={filtered.length}
-            rowHeight={36}
+            rowHeight={52}
             rowProps={itemData}
             overscanCount={10}
             onScroll={(e: React.UIEvent<HTMLDivElement>) => {

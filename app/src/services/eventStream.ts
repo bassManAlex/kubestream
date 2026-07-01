@@ -31,9 +31,14 @@ export class EventStreamClient {
   private readonly baseUrl: string;
   private readonly handlers: EventStreamHandlers;
 
-  constructor(baseUrl: string, handlers: EventStreamHandlers) {
+  constructor(
+    baseUrl: string,
+    handlers: EventStreamHandlers,
+    initialCursor: string | null = null,
+  ) {
     this.baseUrl = baseUrl;
     this.handlers = handlers;
+    this.cursor = initialCursor;
   }
 
   start(): void {
