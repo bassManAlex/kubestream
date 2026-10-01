@@ -11,6 +11,7 @@ First public release.
 - Server rate switch: `slow`, `medium`, `fast`, `ludicrous`
 - Buffer and cursor kept in IndexedDB across refreshes
 - Malformed events counted and shown as placeholder rows
+- Events lost beyond the server buffer are reported in the header
 - Virtualized list of the newest 2000 events that stays still while you read
 - Connection badge: Connecting, Connected, Reconnecting, Disconnected
 

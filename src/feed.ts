@@ -1,4 +1,4 @@
-// Emits events at the configured rate, keeps the last 1000 for GET /events
+// Emits events at the configured rate, keeps the last 2000 for GET /events
 // and pushes each one to the SSE subscribers. It outlives the listener, so
 // ids and buffer survive simulated restarts.
 
@@ -18,7 +18,10 @@ export const EVENTS_PER_SECOND: Record<Rate, number> = {
   ludicrous: 60,
 };
 
-export const BUFFER_CAPACITY = 1000;
+// As many as the viewer shows: a client further behind than this gets at
+// least a full list of consecutive events, so the lost ones would have left
+// the list anyway and no hole shows (events.test.ts checks the two match).
+export const BUFFER_CAPACITY = 2000;
 const TICK_MS = 200;
 const TICKS_PER_SECOND = 1000 / TICK_MS;
 const BURST_FACTOR = 10;
@@ -67,12 +70,20 @@ export class EventFeed {
   }
 
   // Oldest first. An unknown cursor (evicted, or from another process)
-  // starts from the oldest buffered event.
-  read(since: string | undefined, limit: number): Delivery[] {
-    const start = since
-      ? this.buffer.findIndex((delivery) => delivery.id === since) + 1
-      : Math.max(0, this.buffer.length - limit);
-    return this.buffer.slice(start, start + limit);
+  // starts from the oldest buffered event and sets gap: what came between
+  // the cursor and that event is gone. With nothing buffered yet there is
+  // no page to flag, so gap waits for the first event.
+  read(
+    since: string | undefined,
+    limit: number,
+  ): { page: Delivery[]; gap: boolean } {
+    if (!since) {
+      const start = Math.max(0, this.buffer.length - limit);
+      return { page: this.buffer.slice(start, start + limit), gap: false };
+    }
+    const index = this.buffer.findIndex((delivery) => delivery.id === since);
+    const page = this.buffer.slice(index + 1, index + 1 + limit);
+    return { page, gap: index === -1 && page.length > 0 };
   }
 
   emit(): Delivery {

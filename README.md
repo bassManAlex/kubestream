@@ -11,10 +11,11 @@ The frontend is in `app/` (React 19, TypeScript, Vite 8). `src/` holds a small b
 - Streams events over SSE and reconnects on its own, with exponential backoff.
 - After a reconnect or a pause, fetches the events it missed from the REST cursor before showing new ones, so nothing is lost or shown twice.
 - Filters by type, namespace and reason (the dropdowns fill up as events arrive), plus a case sensitive text search on name, namespace, reason, message and type.
-- Shows any event as YAML, with copy to clipboard and prev/next through the other events of the same object (← and →, Esc to close).
+- Shows any valid event as YAML, with copy to clipboard and prev/next through the other events of the same object (← and →, Esc to close).
 - Switches the server rate between `slow`, `medium`, `fast` and `ludicrous`.
 - Keeps the buffer and the cursor in IndexedDB, so a refresh picks up where you left off.
 - Counts malformed events in the header and shows them as placeholder rows. They never crash the UI.
+- Says so in the header when events were lost because the viewer fell further behind than the server keeps.
 - Keeps the newest 2000 events in a virtualized list. At the top the list follows new events; scroll down and the rows you are reading stay still until you click "back to newest".
 
 ## Getting started
@@ -45,15 +46,15 @@ For a same-origin deployment leave it unset. Any server that implements the API 
 
 ### API
 
-| Method  | Path                           | Purpose                                                                             |
-| ------- | ------------------------------ | ----------------------------------------------------------------------------------- |
-| `GET`   | `/events/stream`               | SSE stream, one JSON event per message, event id as the SSE `id`                    |
-| `GET`   | `/events?since=<id>&limit=<n>` | Page from the last 1000 events: `{ events, nextCursor }`, `limit` is 100 by default |
-| `GET`   | `/config`                      | Current configuration                                                               |
-| `PATCH` | `/config`                      | Change the configuration (also saved to `config.json`)                              |
-| `GET`   | `/health`                      | Liveness probe                                                                      |
+| Method  | Path                           | Purpose                                                                                  |
+| ------- | ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `GET`   | `/events/stream`               | SSE stream, one JSON event per message, event id as the SSE `id`                         |
+| `GET`   | `/events?since=<id>&limit=<n>` | Page from the last 2000 events: `{ events, nextCursor, gap }`, `limit` is 100 by default |
+| `GET`   | `/config`                      | Current configuration                                                                    |
+| `PATCH` | `/config`                      | Change the configuration (also saved to `config.json`)                                   |
+| `GET`   | `/health`                      | Liveness probe                                                                           |
 
-`since` returns the events after that id. If the id is no longer in the buffer, or comes from an earlier server process, you get the buffer from the oldest event. With nothing newer, `events` is empty and `nextCursor` is `since` again.
+`since` returns the events after that id. If the id is no longer in the buffer, or comes from an earlier server process, you get the buffer from the oldest event and `gap: true`, because what came in between is gone. With nothing newer, `events` is empty and `nextCursor` is `since` again. `gap` is optional for other servers: without it the viewer can't tell a lost stretch from a normal page.
 
 Only the two `/events` routes are required: `/config` is used by the rate selector and `/health` by the E2E suite.
 
@@ -92,9 +93,9 @@ The backend is meant for development: it listens on all interfaces, accepts any 
 
 When the stream drops, the client reconnects after 1 s, 2 s, 4 s and so on, up to 30 s. After 4 failures in a row the badge says Disconnected, and it stays that way while the client keeps trying.
 
-After each connect, and when a pause ends, the client reads every `GET /events?since=<cursor>` page before committing live events. Live events that arrive meanwhile wait in a buffer, and the ones a page already delivered are dropped, so each event shows up once and in server order. If a page can't be fetched, the client drops the buffer and reconnects rather than skip the gap. A gap bigger than the server's 1000 events can't be recovered.
+After each connect, and when a pause ends, the client reads every `GET /events?since=<cursor>` page before committing live events. Live events that arrive meanwhile wait in a buffer, and the ones a page already delivered are dropped, so each event shows up once and in server order. If a page can't be fetched, the client drops the buffer and reconnects rather than skip the gap. A gap bigger than the server's buffer can't be recovered; the server flags that page with `gap`, and the header says events were lost. The bundled server keeps 2000 events, as many as the list shows, so once the catch-up ends the list holds only consecutive events: what was lost would have been trimmed from it anyway. A backend with a smaller buffer can leave a visible hole.
 
-Live events are batched per animation frame: one dispatch per frame, whatever the rate.
+Live events are batched per animation frame: at most one render per frame, whatever the rate.
 
 All state lives in one `useReducer`, newest event first, capped at 2000. Anything coming from outside goes through Zod (`app/src/types.ts`): events, REST pages, `/config` and the IndexedDB snapshot. An event that fails becomes a malformed row; a snapshot that fails is thrown away.
 
@@ -124,7 +125,7 @@ pnpm build
 pnpm test:e2e
 ```
 
-Before the first E2E run, install the browser with `pnpm exec playwright install chromium`. The suite covers restart recovery, malformed events, the buffer cap and pause at `ludicrous`, the Disconnected state and scroll anchoring. It uses ports 4100, 4101, 5180 and 5181, and creates `config.json` for the run if you don't have one.
+Before the first E2E run, install the browser with `pnpm exec playwright install chromium`. The suite covers restart recovery, malformed events, the buffer cap and pause at `ludicrous`, the Disconnected state, scroll anchoring, restoring the events after a reload and reporting events lost during a long pause. It uses ports 4100, 4101, 5180 and 5181, and creates `config.json` for the run if you don't have one.
 
 CI (`.github/workflows/ci.yml`) runs all of this on pushes to `main` and on pull requests.
 

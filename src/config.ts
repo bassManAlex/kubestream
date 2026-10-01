@@ -1,5 +1,5 @@
 // config.json at the repo root, created from config.example.json on first
-// start. A patch is validated, applied in memory, then written back.
+// start. A patch is validated, written back, then applied in memory.
 
 import { copyFile, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -68,25 +68,30 @@ export function get(): Config {
   return current;
 }
 
-// Rejects the whole patch if any field is unknown or out of range.
+// Rejects the whole patch if any field is unknown or out of range. Patches
+// are queued, so each one builds on the previous; the change only applies
+// once it is on disk, so a failed write changes nothing.
 export async function patch(input: unknown): Promise<Config> {
   const parsed = PatchSchema.safeParse(input);
   if (!parsed.success) throw new ConfigError(describe(parsed.error));
-  const next: Config = { ...get(), ...parsed.data };
-  current = next;
-  for (const listener of listeners) listener(next);
-  if (!persist) return next;
-  // queued so patches reach disk in order; tmp + rename so a crash never
-  // leaves half a file
-  writes = writes
-    .catch(() => {})
-    .then(async () => {
+  const run = writes.then(async () => {
+    const next: Config = { ...get(), ...parsed.data };
+    if (persist) {
+      // tmp + rename so a crash never leaves half a file
       const tmp = `${CONFIG_FILE}.tmp`;
       await writeFile(tmp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       await rename(tmp, CONFIG_FILE);
-    });
-  await writes;
-  return next;
+    }
+    current = next;
+    for (const listener of listeners) listener(next);
+    return next;
+  });
+  // the queue goes on after a failed write; the caller still gets the error
+  writes = run.then(
+    () => {},
+    () => {},
+  );
+  return run;
 }
 
 export function onChange(listener: (config: Config) => void): () => void {

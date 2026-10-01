@@ -19,8 +19,8 @@
     "format:check": "prettier --check src \"*.{json,md}\" .github"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.14",
-    "hono": "^4.12.18",
+    "@hono/node-server": "^1.19.17",
+    "hono": "^4.13.12",
     "zod": "^4.4.3"
   },
   "devDependencies": {

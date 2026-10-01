@@ -38,20 +38,29 @@ function makeEvent(id: string): KubeEvent {
   };
 }
 
-function renderModal(onClose = vi.fn()) {
+function renderModal(onClose = vi.fn(), onPrev = vi.fn(), onNext = vi.fn()) {
   const event = makeEvent("evt_1");
   const events: ParsedEvent[] = [{ status: "ok", data: event }];
-  render(
+  const view = render(
     <EventModal
       event={event}
       uid="uid-1"
       events={events}
       onClose={onClose}
-      onPrev={() => {}}
-      onNext={() => {}}
+      onPrev={onPrev}
+      onNext={onNext}
     />,
   );
-  return { dialog: screen.getByRole("dialog"), onClose };
+  return { dialog: screen.getByRole("dialog"), onClose, onPrev, onNext, view };
+}
+
+// a list row as EventList renders it, focused as after a click
+function focusedRow(eventId: string): HTMLButtonElement {
+  const row = document.createElement("button");
+  row.dataset.eventId = eventId;
+  document.body.append(row);
+  row.focus();
+  return row;
 }
 
 afterEach(cleanup);
@@ -111,5 +120,49 @@ describe("EventModal backdrop", () => {
     fireEvent.mouseDown(dialog);
     fireEvent.click(dialog);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("EventModal keyboard", () => {
+  it("closes on Escape and moves with the arrow keys", () => {
+    const { onClose, onPrev, onNext } = renderModal();
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onPrev).toHaveBeenCalledTimes(1);
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EventModal focus on close", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("gives focus back to the row that opened it", () => {
+    const row = focusedRow("evt_1");
+    const { view } = renderModal();
+    view.unmount();
+    expect(document.activeElement).toBe(row);
+  });
+
+  it("follows the event when its row was recycled for another one", () => {
+    const recycled = focusedRow("evt_1");
+    const { view } = renderModal();
+    recycled.dataset.eventId = "evt_9";
+    const moved = document.createElement("button");
+    moved.dataset.eventId = "evt_1";
+    document.body.append(moved);
+    view.unmount();
+    expect(document.activeElement).toBe(moved);
+  });
+
+  it("leaves focus alone when the event scrolled out of the list", () => {
+    const recycled = focusedRow("evt_1");
+    const { view } = renderModal();
+    recycled.dataset.eventId = "evt_9";
+    view.unmount();
+    expect(document.activeElement).not.toBe(recycled);
   });
 });

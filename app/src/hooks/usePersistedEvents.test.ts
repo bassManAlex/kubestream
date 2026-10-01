@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { useReducer } from "react";
 import { usePersistedEvents } from "./usePersistedEvents";
-import { initialState } from "../store/eventsReducer";
+import { eventsReducer, initialState } from "../store/eventsReducer";
 import type { EventsState } from "../store/eventsReducer";
 import type { EventSnapshot } from "../services/eventStore";
 import { loadSnapshot, saveSnapshot } from "../services/eventStore";
@@ -11,6 +12,8 @@ import { loadSnapshot, saveSnapshot } from "../services/eventStore";
 vi.mock("../services/eventStore");
 
 const loadMock = vi.mocked(loadSnapshot);
+// stable, like the dispatch from useReducer
+const dispatch = vi.fn();
 const saveMock = vi.mocked(saveSnapshot);
 
 // builds a state holding events evt_1..evt_n (newest first) with the cursor at evt_n
@@ -29,7 +32,8 @@ function lastSaved(): EventSnapshot | undefined {
 
 function renderPersisted(state: EventsState) {
   return renderHook(
-    (props: { state: EventsState }) => usePersistedEvents(props.state),
+    (props: { state: EventsState }) =>
+      usePersistedEvents(props.state, dispatch),
     {
       initialProps: { state },
     },
@@ -108,6 +112,25 @@ describe("usePersistedEvents", () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(lastSaved()?.cursor).toBe("evt_30");
+  });
+
+  it("restores the snapshot and never saves the empty state before it", async () => {
+    const snapshot = { events: stateWith(2).events, cursor: "evt_2" };
+    loadMock.mockResolvedValue(snapshot);
+    const { result } = renderHook(() => {
+      const [state, dispatch] = useReducer(eventsReducer, initialState);
+      usePersistedEvents(state, dispatch);
+      return state;
+    });
+    await act(async () => {});
+    expect(result.current.events).toEqual(snapshot.events);
+    expect(result.current.cursor).toBe("evt_2");
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(lastSaved()).toEqual(snapshot);
   });
 
   it("saves immediately on pagehide", async () => {

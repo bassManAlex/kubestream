@@ -7,6 +7,7 @@ import { createApp } from "./http.ts";
 interface Page {
   events: string[];
   nextCursor: string | null;
+  gap: boolean;
 }
 
 let feed: EventFeed;
@@ -48,13 +49,34 @@ test("GET /events?since pages forward from the cursor", async () => {
 test("GET /events echoes the cursor when nothing is newer", async () => {
   const last = Array.from({ length: 3 }, () => feed.emit().id).at(-1);
   const page = await getPage(`?since=${last}`);
-  assert.deepEqual(page, { events: [], nextCursor: last });
+  assert.deepEqual(page, { events: [], nextCursor: last, gap: false });
 });
 
 test("GET /events with an unknown cursor starts from the oldest event", async () => {
   const emitted = Array.from({ length: 3 }, () => feed.emit().id);
   const page = await getPage("?since=gone-42");
   assert.deepEqual(ids(page), emitted);
+  assert.equal(page.gap, true);
+});
+
+test("GET /events flags no gap for a known cursor or no cursor", async () => {
+  const emitted = Array.from({ length: 3 }, () => feed.emit().id);
+  assert.equal((await getPage(`?since=${emitted[0]}`)).gap, false);
+  assert.equal((await getPage("")).gap, false);
+});
+
+test("GET /events flags no gap before anything is buffered", async () => {
+  const page = await getPage("?since=gone-42");
+  assert.deepEqual(page, { events: [], nextCursor: "gone-42", gap: false });
+});
+
+test("an evicted cursor is reported as a gap", async () => {
+  const first = feed.emit().id;
+  for (let i = 0; i < BUFFER_CAPACITY; i += 1) feed.emit();
+  const page = await getPage(`?since=${first}&limit=1`);
+  assert.equal(page.gap, true);
+  // the next page picks up from a buffered cursor: no gap again
+  assert.equal((await getPage(`?since=${page.nextCursor}`)).gap, false);
 });
 
 test("the ring buffer keeps only the most recent events", async () => {
@@ -117,4 +139,25 @@ test("the stream delivers each event with its id", async () => {
   assert.match(text, new RegExp(`id: ${event.id}`));
   assert.ok(text.includes(`data: ${event.payload}`));
   await reader.cancel();
+});
+
+test("concurrent PATCH /config requests all apply, in order", async () => {
+  const app = createApp(feed);
+  const send = (body: object) =>
+    app.request("/config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const responses = await Promise.all([
+    send({ rate: "fast" }),
+    send({ malformedProbability: 0.2 }),
+    send({ rate: "ludicrous" }),
+  ]);
+  assert.deepEqual(
+    responses.map((res) => res.status),
+    [200, 200, 200],
+  );
+  assert.equal(getConfig().rate, "ludicrous");
+  assert.equal(getConfig().malformedProbability, 0.2);
 });

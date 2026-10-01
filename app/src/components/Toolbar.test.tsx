@@ -15,8 +15,11 @@ function jsonResponse(body: unknown): Response {
   return { ok: true, json: () => Promise.resolve(body) } as unknown as Response;
 }
 
-function renderToolbar(overrides: Partial<Parameters<typeof Toolbar>[0]> = {}) {
+type Props = Parameters<typeof Toolbar>[0];
+
+function renderToolbar(overrides: Partial<Props> = {}) {
   const props = {
+    connectionStatus: "connected" as const,
     filter: "",
     onFilterChange: vi.fn(),
     paused: false,
@@ -31,8 +34,11 @@ function renderToolbar(overrides: Partial<Parameters<typeof Toolbar>[0]> = {}) {
     onReasonFilterChange: vi.fn(),
     ...overrides,
   };
-  render(<Toolbar {...props} />);
-  return props;
+  const view = render(<Toolbar {...props} />);
+  // keeps the other props
+  const rerender = (next: Partial<Props>) =>
+    view.rerender(<Toolbar {...props} {...next} />);
+  return { ...props, rerender };
 }
 
 const pressedRates = () =>
@@ -99,6 +105,32 @@ describe("Toolbar rate selector", () => {
       fireEvent.click(screen.getByRole("button", { name: "ludicrous" }));
     });
     expect(pressedRates()).toEqual(["slow"]);
+  });
+});
+
+describe("Toolbar rate refresh", () => {
+  it("waits for the stream to connect, then reads the rate again on reconnect", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ rate: "slow" }));
+    const props = renderToolbar({ connectionStatus: "connecting" });
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    props.rerender({ connectionStatus: "connected" });
+    await act(async () => {});
+    expect(pressedRates()).toEqual(["slow"]);
+
+    fetchMock.mockResolvedValue(jsonResponse({ rate: "fast" }));
+    props.rerender({ connectionStatus: "reconnecting" });
+    props.rerender({ connectionStatus: "connected" });
+    await act(async () => {});
+    expect(pressedRates()).toEqual(["fast"]);
+  });
+
+  it("ignores an error response from GET /config", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
+    renderToolbar();
+    await act(async () => {});
+    expect(pressedRates()).toEqual([]);
   });
 });
 

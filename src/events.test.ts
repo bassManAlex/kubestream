@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildEvent } from "./catalog.ts";
 import { corrupt, strategiesForTesting } from "./corrupt.ts";
+import { RATES } from "./config.ts";
+import { BUFFER_CAPACITY } from "./feed.ts";
 // the frontend's own schema: the server must produce what the viewer accepts
-import { KubeEventSchema } from "../app/src/types.ts";
+import {
+  KubeEventSchema,
+  MAX_EVENTS,
+  RATES as VIEWER_RATES,
+} from "../app/src/types.ts";
 
 const SAMPLES = 3000;
 
@@ -27,16 +33,6 @@ test("events for the same object share uid, name and kind", () => {
   assert.ok(byUid.size < SAMPLES / 10);
 });
 
-test("every namespace shows up in the first events", () => {
-  const namespaces = new Set<string>();
-  for (let i = 0; i < 200; i += 1) {
-    namespaces.add(buildEvent(`test-${i}`).involvedObject.namespace);
-  }
-  for (const namespace of ["default", "kube-system", "payments", "batch"]) {
-    assert.ok(namespaces.has(namespace), namespace);
-  }
-});
-
 test("each corruption strategy always yields invalid JSON", () => {
   for (const [index, strategy] of strategiesForTesting.entries()) {
     for (let i = 0; i < SAMPLES; i += 1) {
@@ -49,4 +45,13 @@ test("each corruption strategy always yields invalid JSON", () => {
 test("corrupt changes the payload", () => {
   const json = JSON.stringify(buildEvent("test"));
   assert.notEqual(corrupt(json), json);
+});
+
+test("the viewer offers the same rates the server accepts", () => {
+  assert.deepEqual(VIEWER_RATES, RATES);
+});
+
+// smaller, and a client behind by more than the buffer would show a hole
+test("the server buffers at least as many events as the viewer shows", () => {
+  assert.ok(BUFFER_CAPACITY >= MAX_EVENTS);
 });

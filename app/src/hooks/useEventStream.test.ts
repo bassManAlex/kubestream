@@ -131,15 +131,18 @@ function ringServer(entries: Entry[], pageSize = 100) {
   const page = (since: string | null, limit: number) => {
     const size = Math.min(limit, pageSize);
     let slice: Entry[];
+    let gap = false;
     if (since) {
       const idx = entries.findIndex((e) => e.id === since);
       slice = (idx >= 0 ? entries.slice(idx + 1) : entries).slice(0, size);
+      gap = idx < 0 && slice.length > 0;
     } else {
       slice = entries.slice(-size);
     }
     return {
       events: slice.map((e) => e.payload),
       nextCursor: slice.at(-1)?.id ?? since ?? null,
+      gap,
     };
   };
 
@@ -571,6 +574,7 @@ describe("useEventStream", () => {
       onStatus: vi.fn(),
       onEvents: vi.fn(),
       onCursor: vi.fn(),
+      onGap: vi.fn(),
       isPaused: () => false,
     };
     const client = new EventStreamClient("http://localhost", handlers, "evt_0");
@@ -585,5 +589,66 @@ describe("useEventStream", () => {
     expect(handlers.onEvents).not.toHaveBeenCalled();
     expect(handlers.onCursor).not.toHaveBeenCalled();
     expect(server.sinces).toEqual(["evt_0"]);
+  });
+
+  it("reports a gap once when the saved cursor is no longer buffered", async () => {
+    const server = ringServer([ok("evt_5"), ok("evt_6"), ok("evt_7")], 2);
+    const { result } = renderStream("evt_1"); // evicted long ago
+    await act(async () => {
+      MockEventSource.instances[0]!.emitOpen();
+    });
+
+    // the first page flags it, the next one starts from a buffered cursor
+    expect(server.sinces).toEqual(["evt_1", "evt_6", "evt_7"]);
+    expect(okIds(result.current)).toEqual(["evt_5", "evt_6", "evt_7"]);
+    expect(result.current.gapCount).toBe(1);
+  });
+
+  it("reports no gap for a cursor the server still has", async () => {
+    ringServer([ok("evt_1"), ok("evt_2")]);
+    const { result } = renderStream("evt_1");
+    await act(async () => {
+      MockEventSource.instances[0]!.emitOpen();
+    });
+    expect(okIds(result.current)).toEqual(["evt_2"]);
+    expect(result.current.gapCount).toBe(0);
+  });
+
+  it("counts one attempt when the stream and the catch-up fail together", async () => {
+    let failFetch: (error: Error) => void = () => {};
+    fetchMock.mockImplementation(
+      () =>
+        new Promise<Response>((_, reject) => {
+          failFetch = reject;
+        }),
+    );
+    const onStatus = vi.fn();
+    const client = new EventStreamClient(
+      "http://localhost",
+      {
+        onStatus,
+        onEvents: vi.fn(),
+        onCursor: vi.fn(),
+        onGap: vi.fn(),
+        isPaused: () => false,
+      },
+      "evt_0",
+    );
+    client.start();
+    const es = MockEventSource.instances[0]!;
+    es.emitOpen(); // catch-up page in flight
+
+    // a restart drops the stream and the page request at once
+    es.emitError();
+    failFetch(new Error("connection reset"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      onStatus.mock.calls.filter(([s]) => s === "reconnecting"),
+    ).toHaveLength(1);
+
+    // stopped before the retry: no connection may open afterwards
+    client.stop();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 });

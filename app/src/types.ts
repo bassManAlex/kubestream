@@ -3,6 +3,9 @@ import { z } from "zod";
 export const EventsResponseSchema = z.object({
   events: z.array(z.string()),
   nextCursor: z.string().nullable(),
+  // since was no longer buffered, events in between are lost. Optional: a
+  // server that doesn't send it just never reports a gap.
+  gap: z.boolean().optional(),
 });
 
 export type EventsResponse = z.infer<typeof EventsResponseSchema>;
@@ -46,8 +49,8 @@ export const KubeEventSchema = z.looseObject({
 
 export type KubeEvent = z.infer<typeof KubeEventSchema>;
 
-// raw is kept for malformed events only, there is nothing else to show.
-// Older snapshots with raw on ok events still parse (z.object drops it).
+// raw is kept for malformed events only: the text filter searches it, and
+// it is the only content they have.
 export const ParsedEventSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("ok"), data: KubeEventSchema }),
   z.object({ status: z.literal("malformed"), raw: z.string(), id: z.string() }),
@@ -64,6 +67,9 @@ export const EventSnapshotSchema = z.object({
 export type EventSnapshot = z.infer<typeof EventSnapshotSchema>;
 
 export const RATES = ["slow", "medium", "fast", "ludicrous"] as const;
+
+// newest events the viewer keeps; the bundled server buffers as many
+export const MAX_EVENTS = 2000;
 
 // GET /config also returns the other server settings; only rate is read here.
 export const ConfigResponseSchema = z.looseObject({ rate: z.enum(RATES) });

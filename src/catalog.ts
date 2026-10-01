@@ -53,7 +53,7 @@ const suffix = (length: number): string =>
     oneOf("bcdfghjklmnpqrstvwxz2456789".split("")),
   ).join("");
 
-const NAMESPACES = [
+export const NAMESPACES = [
   "default",
   "kube-system",
   "payments",
@@ -135,6 +135,8 @@ const KIND_WEIGHTS: Kind[] = [
   "Job",
   "PersistentVolumeClaim",
 ];
+// Nodes always land in "default", so they can't stand for another namespace
+const NAMESPACED_KINDS = KIND_WEIGHTS.filter((kind) => kind !== "Node");
 const POPULATION = 24;
 const REPLACE_CHANCE = 0.02;
 const population: Tracked[] = [];
@@ -145,8 +147,11 @@ function pickObject(): Tracked {
   let tracked: Tracked;
   if (population.length < POPULATION) {
     // the first fill cycles through the namespaces so each one is present
+    // from the first events on
     const namespace = NAMESPACES[population.length % NAMESPACES.length];
-    tracked = makeObject(oneOf(KIND_WEIGHTS), namespace);
+    const kinds =
+      population.length < NAMESPACES.length ? NAMESPACED_KINDS : KIND_WEIGHTS;
+    tracked = makeObject(oneOf(kinds), namespace);
     population.push(tracked);
   } else {
     const index = between(0, population.length - 1);
@@ -285,9 +290,6 @@ const TEMPLATES: Template[] = [
         `  pods at risk of eviction: ${between(1, 12)}`,
       ].join("\n"),
   },
-];
-
-TEMPLATES.push(
   {
     kinds: ["ReplicaSet"],
     type: "Normal",
@@ -314,7 +316,7 @@ TEMPLATES.push(
     message: ({ ref }) =>
       `Bound ${ref.name} to a new ${between(1, 50)}Gi volume`,
   },
-);
+];
 
 const secondsAgo = (seconds: number): string =>
   new Date(Date.now() - seconds * 1000).toISOString();

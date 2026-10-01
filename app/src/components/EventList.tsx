@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import type { FacetFilter } from "../store/eventsReducer";
 import { rowsPrepended } from "../utils/scrollAnchor";
+import { matchesFilter } from "../utils/matchesFilter";
 
 const ROW_HEIGHT = 52;
 // closer than this to the top, the list follows new events
@@ -35,38 +36,6 @@ function emptyMessage(hasEvents: boolean, status: ConnectionStatus): string {
   return "Waiting for events…";
 }
 
-function matchesFilter(
-  event: ParsedEvent,
-  filter: string,
-  typeFilter: TypeFilter,
-  namespaceFilter: FacetFilter,
-  reasonFilter: FacetFilter,
-): boolean {
-  if (event.status === "malformed")
-    return (
-      typeFilter === "all" &&
-      namespaceFilter === null &&
-      reasonFilter === null &&
-      (!filter || event.raw.includes(filter))
-    );
-  const d = event.data;
-  if (typeFilter !== "all" && d.type !== typeFilter) return false;
-  if (
-    namespaceFilter !== null &&
-    d.involvedObject.namespace !== namespaceFilter
-  )
-    return false;
-  if (reasonFilter !== null && d.reason !== reasonFilter) return false;
-  if (!filter) return true;
-  return (
-    d.involvedObject.name.includes(filter) ||
-    d.involvedObject.namespace.includes(filter) ||
-    d.reason.includes(filter) ||
-    d.message.includes(filter) ||
-    d.type.includes(filter)
-  );
-}
-
 interface RowData {
   events: ParsedEvent[];
   onSelect: (event: KubeEvent) => void;
@@ -75,6 +44,10 @@ interface RowData {
 type RowProps = RowComponentProps<RowData>;
 
 const Row = ({ index, style, events, onSelect }: RowProps) => {
+  // Rows are keyed by index. While the list follows a fast stream the row
+  // under the pointer can show another event by the time the click lands,
+  // so the click opens the event that was on screen when it was pressed.
+  const pressed = useRef<KubeEvent | null>(null);
   const event = events[index];
   if (!event) return null;
 
@@ -98,7 +71,17 @@ const Row = ({ index, style, events, onSelect }: RowProps) => {
     <button
       type="button"
       style={style}
-      onClick={() => onSelect(d)}
+      data-event-id={d.id}
+      onPointerDown={() => {
+        pressed.current = d;
+      }}
+      onPointerLeave={() => {
+        pressed.current = null;
+      }}
+      onClick={() => {
+        onSelect(pressed.current ?? d);
+        pressed.current = null;
+      }}
       aria-label={`${d.type} event, ${d.involvedObject.namespace}/${d.involvedObject.name}, ${d.reason}`}
       className="w-full text-left px-4 py-1.5 border-b border-gray-800/50 flex flex-col justify-center gap-0.5 cursor-pointer hover:bg-gray-900 transition-colors font-mono"
     >
@@ -138,9 +121,13 @@ export function EventList({
   onSelect,
 }: Props) {
   // already newest-first
-  const filtered = events.filter((e) =>
-    matchesFilter(e, filter, typeFilter, namespaceFilter, reasonFilter),
-  );
+  const filters = {
+    text: filter,
+    type: typeFilter,
+    namespace: namespaceFilter,
+    reason: reasonFilter,
+  };
+  const filtered = events.filter((e) => matchesFilter(e, filters));
   const rowProps = { events: filtered, onSelect };
 
   const listRef = useRef<ListImperativeAPI | null>(null);

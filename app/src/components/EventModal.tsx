@@ -35,18 +35,38 @@ export function EventModal({
 
   const yaml = dump(event, { indent: 2 });
 
-  useKeyboard({ onClose, onPrev, onNext, active: true });
+  useKeyboard({ onClose, onPrev, onNext });
 
   const dialogRef = useRef<HTMLDivElement>(null);
   // a selection dragged out of the dialog also ends with a backdrop click
   const pressedOnBackdrop = useRef(false);
 
-  // focus the dialog, and give focus back to the row on close
+  // Focus the dialog, and give focus back to the row on close. Rows are
+  // recycled by index, so the one that opened the dialog may show another
+  // event by then: look the event up instead.
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const openedFrom = previouslyFocused?.dataset.eventId;
     dialogRef.current?.focus();
-    return () => previouslyFocused?.focus();
+    return () => {
+      if (openedFrom === undefined) {
+        previouslyFocused?.focus();
+        return;
+      }
+      const row = [
+        ...document.querySelectorAll<HTMLElement>("[data-event-id]"),
+      ].find((el) => el.dataset.eventId === openedFrom);
+      row?.focus();
+    };
   }, []);
+
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
 
   // Tab trap. Focus starts on the container, which is neither first nor
   // last, so that case wraps too.
@@ -73,7 +93,8 @@ export function EventModal({
     try {
       await navigator.clipboard.writeText(yaml);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimer.current !== null) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       // clipboard unavailable (insecure context) or permission denied
     }

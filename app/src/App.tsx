@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useReducer } from "react";
 import { eventsReducer, initialState, MAX_EVENTS } from "./store/eventsReducer";
 import { useEventStream } from "./hooks/useEventStream";
 import { usePersistedEvents } from "./hooks/usePersistedEvents";
@@ -12,23 +12,16 @@ import logo from "./assets/img/logo.webp";
 export default function App() {
   const [state, dispatch] = useReducer(eventsReducer, initialState);
 
-  const restored = usePersistedEvents(state);
-  const restoredDispatched = useRef(false);
-  useEffect(() => {
-    if (!restored || restoredDispatched.current) return;
-    restoredDispatched.current = true;
-    dispatch({ type: "EVENTS_RESTORED", payload: restored });
-  }, [restored]);
-
+  const restored = usePersistedEvents(state, dispatch);
   useEventStream(state, dispatch, restored?.cursor);
 
   return (
     <div className="h-screen bg-gray-950 text-gray-100 flex flex-col">
       <header className="shrink-0 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <img src={logo} alt="" className="h-20 object-contain" />
-          </div>
+          <h1>
+            <img src={logo} alt="KubeStream" className="h-20 object-contain" />
+          </h1>
           <span className="text-xs font-mono text-gray-600">
             {state.events.length >= MAX_EVENTS
               ? `${MAX_EVENTS}+ events (capped)`
@@ -37,6 +30,15 @@ export default function App() {
           {state.malformedCount > 0 && (
             <span className="text-xs font-mono text-red-400/70">
               {state.malformedCount} malformed
+            </span>
+          )}
+          {state.gapCount > 0 && (
+            <span
+              className="text-xs font-mono text-amber-400"
+              title="The viewer fell behind the server buffer: some events were lost and can't be fetched again"
+            >
+              events lost{" "}
+              {state.gapCount === 1 ? "once" : `${state.gapCount} times`}
             </span>
           )}
         </div>
@@ -49,6 +51,7 @@ export default function App() {
           onFilterChange={(f) =>
             dispatch({ type: "FILTER_CHANGED", payload: f })
           }
+          connectionStatus={state.connectionStatus}
           paused={state.paused}
           onTogglePause={() => dispatch({ type: "TOGGLE_PAUSE" })}
           typeFilter={state.typeFilter}

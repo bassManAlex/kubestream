@@ -31,6 +31,7 @@ export function useEventStream(
         onEvents: (batch) =>
           dispatch({ type: "EVENTS_RECEIVED", payload: batch }),
         onCursor: (id) => dispatch({ type: "CURSOR_UPDATED", payload: id }),
+        onGap: () => dispatch({ type: "GAP_DETECTED" }),
         isPaused: () => pausedRef.current,
       },
       initialCursor,

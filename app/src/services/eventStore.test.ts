@@ -44,14 +44,6 @@ describe("parseSnapshot", () => {
     expect(parseSnapshot(snapshot)).toEqual(snapshot);
   });
 
-  it("loads a snapshot that still keeps the raw text of valid events", () => {
-    const legacy = { events: [{ ...okEvent, raw: "{}" }], cursor: "evt_1" };
-    expect(parseSnapshot(legacy)).toEqual({
-      events: [okEvent],
-      cursor: "evt_1",
-    });
-  });
-
   it("returns null when nothing was stored", () => {
     expect(parseSnapshot(undefined)).toBeNull();
   });

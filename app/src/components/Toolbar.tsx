@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   ConfigResponseSchema,
   RATES,
+  type ConnectionStatus,
   type Rate,
   type TypeFilter,
 } from "../types";
@@ -11,6 +12,7 @@ import { SERVER_URL } from "../config/serverUrl";
 const FILTER_DEBOUNCE_MS = 150;
 
 interface Props {
+  connectionStatus: ConnectionStatus;
   filter: string;
   onFilterChange: (value: string) => void;
   paused: boolean;
@@ -44,6 +46,7 @@ async function patchRate(rate: Rate) {
 }
 
 export function Toolbar({
+  connectionStatus,
   filter,
   onFilterChange,
   paused,
@@ -76,15 +79,27 @@ export function Toolbar({
     return () => clearTimeout(id);
   }, [text]);
 
+  // Read on every (re)connect: a restarted server may run another rate. A
+  // click made while the request is out wins over its answer.
+  const connected = connectionStatus === "connected";
   useEffect(() => {
-    void fetch(`${SERVER_URL}/config`)
-      .then((r) => r.json())
+    if (!connected) return;
+    const controller = new AbortController();
+    const request = rateRequest.current;
+    void fetch(`${SERVER_URL}/config`, { signal: controller.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`GET /config failed: ${r.status}`);
+        return r.json();
+      })
       .then((body: unknown) => {
         const cfg = ConfigResponseSchema.safeParse(body);
-        if (cfg.success) setRate(cfg.data.rate);
+        if (cfg.success && rateRequest.current === request) {
+          setRate(cfg.data.rate);
+        }
       })
       .catch(() => null);
-  }, []);
+    return () => controller.abort();
+  }, [connected]);
 
   const handleRate = (r: Rate) => {
     const prev = rate;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { EventsState } from "../store/eventsReducer";
+import type { EventsAction, EventsState } from "../store/eventsReducer";
 import { loadSnapshot, saveSnapshot } from "../services/eventStore";
 import type { EventSnapshot } from "../services/eventStore";
 
@@ -25,18 +25,29 @@ function flush(persist: PersistState) {
   void saveSnapshot(snapshot);
 }
 
-// Loads the snapshot on mount (undefined until then), then saves the latest
-// state at most once a second, and right away on pagehide, hidden tab and
-// unmount. Nothing is written before the load is done, otherwise a quick
-// refresh could overwrite the snapshot with an empty one.
-export function usePersistedEvents(state: EventsState) {
+// Loads the snapshot on mount and restores it (undefined until then), then
+// saves the latest state at most once a second, and right away on pagehide,
+// hidden tab and unmount. Nothing is written before the load is done, and
+// the restore lands in the same render as `loaded`, so the empty initial
+// state never reaches the store.
+export function usePersistedEvents(
+  state: EventsState,
+  dispatch: React.Dispatch<EventsAction>,
+) {
   const [restored, setRestored] = useState<RestoredSnapshot | null>();
 
   useEffect(() => {
-    void loadSnapshot().then((snapshot) =>
-      setRestored(snapshot ?? { events: [], cursor: null }),
-    );
-  }, []);
+    // StrictMode mounts twice: only the live mount may restore
+    let cancelled = false;
+    void loadSnapshot().then((snapshot) => {
+      if (cancelled) return;
+      if (snapshot) dispatch({ type: "EVENTS_RESTORED", payload: snapshot });
+      setRestored(snapshot ?? { events: [], cursor: null });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dispatch]);
 
   const loaded = restored !== undefined;
   const persistRef = useRef<PersistState>({ pending: null, timer: null });

@@ -2,7 +2,8 @@
 // every connection while the feed keeps going.
 //
 //   GET   /health
-//   GET   /events          ?since=<id>&limit=<1..1000>, default limit 100
+//   GET   /events          ?since=<id>&limit=<1..2000>, default limit 100;
+//                          gap: true when since is no longer buffered
 //   GET   /events/stream   server-sent events, one payload per message
 //   GET   /config
 //   PATCH /config
@@ -41,11 +42,12 @@ export function createApp(feed: EventFeed): Hono {
 
   app.get("/events", (c) => {
     const since = c.req.query("since") || undefined;
-    const page = feed.read(since, parseLimit(c.req.query("limit")));
+    const { page, gap } = feed.read(since, parseLimit(c.req.query("limit")));
     return c.json({
       events: page.map((delivery) => delivery.payload),
       // with nothing newer, the caller's cursor comes back unchanged
       nextCursor: page.at(-1)?.id ?? since ?? null,
+      gap,
     });
   });
 

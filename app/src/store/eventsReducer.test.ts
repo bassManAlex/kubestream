@@ -173,6 +173,15 @@ describe("eventsReducer: NAMESPACE_FILTER_CHANGED / REASON_FILTER_CHANGED", () =
   });
 });
 
+describe("eventsReducer: GAP_DETECTED", () => {
+  it("counts each gap", () => {
+    const once = dispatch(initialState, { type: "GAP_DETECTED" });
+    const twice = dispatch(once, { type: "GAP_DETECTED" });
+    expect(once.gapCount).toBe(1);
+    expect(twice.gapCount).toBe(2);
+  });
+});
+
 describe("eventsReducer: CURSOR_UPDATED", () => {
   it("updates cursor", () => {
     const next = dispatch(initialState, {

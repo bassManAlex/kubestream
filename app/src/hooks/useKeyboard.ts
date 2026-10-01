@@ -4,13 +4,10 @@ interface Options {
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
-  active: boolean;
 }
 
-export function useKeyboard({ onClose, onPrev, onNext, active }: Options) {
+export function useKeyboard({ onClose, onPrev, onNext }: Options) {
   useEffect(() => {
-    if (!active) return;
-
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") onPrev();
@@ -19,5 +16,5 @@ export function useKeyboard({ onClose, onPrev, onNext, active }: Options) {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [active, onClose, onPrev, onNext]);
+  }, [onClose, onPrev, onNext]);
 }

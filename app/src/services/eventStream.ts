@@ -12,6 +12,8 @@ export interface EventStreamHandlers {
   onStatus: (status: ConnectionStatus) => void;
   onEvents: (batch: ParsedEvent[]) => void;
   onCursor: (id: string) => void;
+  // the server no longer had the cursor: events were lost before this page
+  onGap: () => void;
   isPaused: () => boolean;
 }
 
@@ -105,9 +107,11 @@ export class EventStreamClient {
     this.rafId = requestAnimationFrame(this.flush);
   }
 
-  private async fetchPage(query: string): Promise<EventsResponse | null> {
+  private async fetchPage(
+    query: URLSearchParams,
+  ): Promise<EventsResponse | null> {
     try {
-      const res = await fetch(`${this.baseUrl}/events?${query}`);
+      const res = await fetch(`${this.baseUrl}/events?${query.toString()}`);
       if (!res.ok) return null;
       const parsed = EventsResponseSchema.safeParse(await res.json());
       return parsed.success ? parsed.data : null;
@@ -159,17 +163,20 @@ export class EventStreamClient {
     if (!live()) return true;
     if (!this.cursor) {
       // no cursor means no gap: a failed fetch just means less history
-      const json = await this.fetchPage(`limit=${CATCHUP_LIMIT}`);
+      const json = await this.fetchPage(
+        new URLSearchParams({ limit: String(CATCHUP_LIMIT) }),
+      );
       if (json && live() && json.events.length > 0) this.applyPage(json);
       return true;
     }
     while (this.cursor && live()) {
       const since = this.cursor;
       const json = await this.fetchPage(
-        `since=${since}&limit=${CATCHUP_LIMIT}`,
+        new URLSearchParams({ since, limit: String(CATCHUP_LIMIT) }),
       );
       if (!json) return false;
       if (!live() || json.events.length === 0) return true;
+      if (json.gap) this.handlers.onGap();
       this.applyPage(json);
       // the server echoes the input cursor when there is nothing newer
       if (!json.nextCursor || json.nextCursor === since) return true;
@@ -212,7 +219,8 @@ export class EventStreamClient {
       if (this.stopped) return;
       this.open = true;
       this.handlers.onStatus("connected");
-      // backoff resets after a successful catch-up, not here
+      // backoff resets after a successful catch-up, not here. Paused there is
+      // no catch-up, so the open itself counts.
       if (this.handlers.isPaused()) {
         this.attempts = 0;
         return;
@@ -232,7 +240,10 @@ export class EventStreamClient {
     es.onerror = () => this.fail();
   }
 
+  // An SSE error and a failed catch-up can both report the same outage: the
+  // second call must not count another attempt or leave a second timer.
   private fail(): void {
+    if (this.reconnectTimer !== null) return;
     this.es?.close();
     this.es = null;
     this.open = false;
@@ -247,6 +258,9 @@ export class EventStreamClient {
       RECONNECT_BASE_MS * 2 ** (this.attempts - 1),
       RECONNECT_MAX_MS,
     );
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
   }
 }

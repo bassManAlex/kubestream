@@ -4,6 +4,7 @@ import type {
   ConnectionStatus,
   TypeFilter,
 } from "../types";
+import { MAX_EVENTS } from "../types";
 import { getUidEvents } from "../utils/siblings";
 
 // null = no filter. Not "all": that is a valid namespace name.
@@ -24,6 +25,8 @@ export interface EventsState {
   selectedUid: string | null;
   paused: boolean;
   malformedCount: number;
+  // catch-ups that found the cursor gone, so events were lost
+  gapCount: number;
 }
 
 export const initialState: EventsState = {
@@ -40,6 +43,7 @@ export const initialState: EventsState = {
   selectedUid: null,
   paused: false,
   malformedCount: 0,
+  gapCount: 0,
 };
 
 export type EventsAction =
@@ -49,6 +53,7 @@ export type EventsAction =
       payload: { events: ParsedEvent[]; cursor: string | null };
     }
   | { type: "CURSOR_UPDATED"; payload: string }
+  | { type: "GAP_DETECTED" }
   | { type: "CONNECTION_STATUS_CHANGED"; payload: ConnectionStatus }
   | { type: "FILTER_CHANGED"; payload: string }
   | { type: "TYPE_FILTER_CHANGED"; payload: TypeFilter }
@@ -60,7 +65,7 @@ export type EventsAction =
   | { type: "NAVIGATE_NEXT" }
   | { type: "TOGGLE_PAUSE" };
 
-export const MAX_EVENTS = 2000;
+export { MAX_EVENTS };
 
 export function eventsReducer(
   state: EventsState,
@@ -94,7 +99,7 @@ export function eventsReducer(
     }
 
     // From IndexedDB: saved newest-first and capped, so used as is. Facets
-    // are rebuilt; malformedCount only counts this session.
+    // are rebuilt; malformedCount and gapCount only count this session.
     case "EVENTS_RESTORED": {
       const namespaces = new Set<string>();
       const reasons = new Set<string>();
@@ -114,6 +119,9 @@ export function eventsReducer(
 
     case "CURSOR_UPDATED":
       return { ...state, cursor: action.payload };
+
+    case "GAP_DETECTED":
+      return { ...state, gapCount: state.gapCount + 1 };
 
     case "CONNECTION_STATUS_CHANGED":
       return { ...state, connectionStatus: action.payload };
