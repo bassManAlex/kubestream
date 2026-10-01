@@ -1,0 +1,32 @@
+{
+  "name": "kubestream",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Real-time Kubernetes event viewer with a synthetic event server",
+  "license": "MIT",
+  "author": "Alessandro Pinato",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.30.1",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src \"*.{json,md}\" .github",
+    "format:check": "prettier --check src \"*.{json,md}\" .github"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.14",
+    "hono": "^4.12.18",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "prettier": "^3.9.4",
+    "tsx": "^4.21.0",
+    "typescript": "~6.0.3"
+  }
+}

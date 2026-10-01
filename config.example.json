@@ -1,0 +1,6 @@
+{
+  "rate": "medium",
+  "spikeProbability": 0.03,
+  "malformedProbability": 0.03,
+  "serverRestartIntervalSeconds": 300
+}
